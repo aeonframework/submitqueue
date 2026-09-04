@@ -57,6 +57,10 @@ type Params struct {
 	// OnSignal receives typed subscriber lifecycle signals (HookSignal).
 	// Nil in production; used by integration tests for event-driven waits.
 	OnSignal chan HookSignal
+
+	// Tenants is the configured shard isolation list this subscriber
+	// discovers and leases partitions for. Empty skips partition discovery.
+	Tenants []string
 }
 
 // NewQueue creates a new SQL-based queue
@@ -102,6 +106,7 @@ func NewQueue(params Params) (extqueue.Queue, error) {
 		leaseStore,
 		heartbeatStore,
 		deliveryStateStore,
+		params.Tenants,
 	)
 	subscriber.OnSignal = params.OnSignal
 

@@ -60,6 +60,14 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
+var runwayTestTenants = []string{
+	"e2e-runway/merge",
+	"e2e-runway/check",
+	"e2e-runway/failed",
+	"e2e-runway/dlq",
+	"e2e-runway/undecodable",
+}
+
 type RunwayE2ESuite struct {
 	suite.Suite
 	ctx     context.Context
@@ -114,6 +122,7 @@ func (s *RunwayE2ESuite) SetupSuite() {
 		DB:           s.queueDB,
 		Logger:       zaptest.NewLogger(t),
 		MetricsScope: tally.NoopScope,
+		Tenants:      runwayTestTenants,
 	})
 	require.NoError(t, err, "failed to create queue client")
 	t.Cleanup(func() { s.queue.Close() })

@@ -39,9 +39,10 @@ import (
 // so a test only names the parts it cares about.
 func newDeliveryForTest(sub *subscriber, attempt int, dlq extqueue.DLQConfig, retry extqueue.RetryConfig) *sqlDelivery {
 	msg := entityqueue.NewMessage("msg-1", []byte("payload"), "part-1", nil)
+	msg.Tenant = testTenant
 	return newSQLDelivery(
 		msg, "1", attempt, nil,
-		sub, "test_topic", "part-1", 100, "msg-1", "test-group",
+		sub, testTenant, "test_topic", "part-1", 100, "msg-1", "test-group",
 		dlq, retry, failure.Failure{}, false,
 	)
 }
@@ -53,22 +54,22 @@ func testSubscriptionConfig() extqueue.SubscriptionConfig {
 // newTestHeartbeatStore creates a mock heartbeat store that allows all calls
 func newTestHeartbeatStore(ctrl *gomock.Controller) *MocksubscriberHeartbeatStore {
 	mockHB := NewMocksubscriberHeartbeatStore(ctrl)
-	mockHB.EXPECT().Heartbeat(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockHB.EXPECT().ActiveSubscribers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{"self"}, nil).AnyTimes()
-	mockHB.EXPECT().Deregister(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockHB.EXPECT().PurgeStale(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockHB.EXPECT().Heartbeat(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockHB.EXPECT().ActiveSubscribers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{"self"}, nil).AnyTimes()
+	mockHB.EXPECT().Deregister(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockHB.EXPECT().PurgeStale(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	return mockHB
 }
 
 // newTestDeliveryStateStore creates a mock delivery state store that allows all calls
 func newTestDeliveryStateStore(ctrl *gomock.Controller) *MockdeliveryStateStore {
 	mockDS := NewMockdeliveryStateStore(ctrl)
-	mockDS.EXPECT().MarkDelivered(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
-	mockDS.EXPECT().MarkAcked(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockDS.EXPECT().MarkNacked(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockDS.EXPECT().GetDeliveryState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(DeliveryState{}, false, nil).AnyTimes()
-	mockDS.EXPECT().AdvanceWatermark(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
-	mockDS.EXPECT().ExtendVisibility(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockDS.EXPECT().MarkDelivered(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(0, nil).AnyTimes()
+	mockDS.EXPECT().MarkAcked(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockDS.EXPECT().MarkNacked(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockDS.EXPECT().GetDeliveryState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(DeliveryState{}, false, nil).AnyTimes()
+	mockDS.EXPECT().AdvanceWatermark(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
+	mockDS.EXPECT().ExtendVisibility(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	return mockDS
 }
 
@@ -78,9 +79,9 @@ func setupSubscriberTest(t *testing.T, mockMessageStore *MockmessageStore, mockO
 	mockHeartbeatStore := newTestHeartbeatStore(ctrl)
 	mockDeliveryStateStore := newTestDeliveryStateStore(ctrl)
 	// Allow watermark advancement calls from poll loop
-	mockOffsetStore.EXPECT().GetAckedOffset(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
-	mockMessageStore.EXPECT().GetOffsetsAbove(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	return NewSubscriber(zaptest.NewLogger(t).Sugar().Named("subscriber"), tally.NoopScope.SubScope("subscriber"), mockMessageStore, mockOffsetStore, mockLeaseStore, mockHeartbeatStore, mockDeliveryStateStore)
+	mockOffsetStore.EXPECT().GetAckedOffset(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
+	mockMessageStore.EXPECT().GetOffsetsAbove(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	return NewSubscriber(zaptest.NewLogger(t).Sugar().Named("subscriber"), tally.NoopScope.SubScope("subscriber"), mockMessageStore, mockOffsetStore, mockLeaseStore, mockHeartbeatStore, mockDeliveryStateStore, []string{testTenant})
 }
 
 func TestSubscriber_Subscribe(t *testing.T) {
@@ -119,7 +120,7 @@ func TestSubscriber_Subscribe(t *testing.T) {
 
 			// Reached via releaseAllLeases on the shutdown path, and by the
 			// discovery ticker if it fires before teardown.
-			mockLeaseStore.EXPECT().GetLeasedPartitions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{}, nil).AnyTimes()
+			mockLeaseStore.EXPECT().GetLeasedPartitions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{}, nil).AnyTimes()
 
 			sub := setupSubscriberTest(t, mockMessageStore, mockOffsetStore, mockLeaseStore)
 			// Close waits for managePartitions to exit; a bare cancel would only
@@ -185,7 +186,7 @@ func TestSubscriber_SubscribeContextCancellation(t *testing.T) {
 	mockMessageStore := NewMockmessageStore(ctrl)
 	mockOffsetStore := NewMockoffsetStore(ctrl)
 	mockLeaseStore := NewMockpartitionLeaseStore(ctrl)
-	mockLeaseStore.EXPECT().GetLeasedPartitions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{}, nil).AnyTimes()
+	mockLeaseStore.EXPECT().GetLeasedPartitions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{}, nil).AnyTimes()
 
 	sub := setupSubscriberTest(t, mockMessageStore, mockOffsetStore, mockLeaseStore)
 	defer func() {
@@ -211,7 +212,7 @@ func TestSubscriber_SubscribeReplacesStaleSubscription(t *testing.T) {
 	mockMessageStore := NewMockmessageStore(ctrl)
 	mockOffsetStore := NewMockoffsetStore(ctrl)
 	mockLeaseStore := NewMockpartitionLeaseStore(ctrl)
-	mockLeaseStore.EXPECT().GetLeasedPartitions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{}, nil).AnyTimes()
+	mockLeaseStore.EXPECT().GetLeasedPartitions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{}, nil).AnyTimes()
 
 	sub := setupSubscriberTest(t, mockMessageStore, mockOffsetStore, mockLeaseStore)
 	defer func() {
@@ -279,6 +280,7 @@ func TestSQLDelivery_Ack(t *testing.T) {
 				mockLeaseStore,
 				newTestHeartbeatStore(ctrl),
 				mockDeliveryState,
+				[]string{testTenant},
 			)
 
 			d := newDeliveryForTest(sub, 1, extqueue.DLQConfig{}, extqueue.RetryConfig{})
@@ -290,7 +292,7 @@ func TestSQLDelivery_Ack(t *testing.T) {
 			if !tt.alreadyAcked {
 				// Ack only calls MarkAcked — watermark is deferred to poll loop
 				mockDeliveryState.EXPECT().MarkAcked(
-					gomock.Any(), "test-group", "test_topic", "part-1", int64(100),
+					gomock.Any(), "test-group", testTenant, "test_topic", "part-1", int64(100),
 				).Return(tt.markAckedErr)
 			}
 
@@ -346,6 +348,7 @@ func TestSQLDelivery_Postpone(t *testing.T) {
 				mockLeaseStore,
 				newTestHeartbeatStore(ctrl),
 				mockDeliveryState,
+				[]string{testTenant},
 			)
 
 			d := newDeliveryForTest(sub, 1, extqueue.DLQConfig{}, extqueue.RetryConfig{})
@@ -356,7 +359,7 @@ func TestSQLDelivery_Postpone(t *testing.T) {
 
 			if !tt.alreadyAcked {
 				mockDeliveryState.EXPECT().MarkPostponed(
-					gomock.Any(), "test-group", "test_topic", "part-1", int64(100), int64(5000),
+					gomock.Any(), "test-group", testTenant, "test_topic", "part-1", int64(100), int64(5000),
 				).Return(tt.markPostponedErr)
 			}
 
@@ -424,6 +427,7 @@ func TestSQLDelivery_Reject(t *testing.T) {
 				mockLeaseStore,
 				newTestHeartbeatStore(ctrl),
 				mockDeliveryState,
+				[]string{testTenant},
 			)
 
 			dlqConfig := extqueue.DLQConfig{
@@ -439,19 +443,19 @@ func TestSQLDelivery_Reject(t *testing.T) {
 
 			if tt.expectMoveDLQ {
 				mockMsgStore.EXPECT().MoveToDLQ(
-					gomock.Any(), "test_topic", "part-1", "msg-1", 1, failure.New("bad payload"), "_dlq",
+					gomock.Any(), testTenant, "test_topic", "part-1", "msg-1", 1, failure.New("bad payload"), "_dlq",
 				).Return(tt.moveToDLQErr)
 
 				if tt.moveToDLQErr == nil {
 					mockDeliveryState.EXPECT().MarkAcked(
-						gomock.Any(), "test-group", "test_topic", "part-1", int64(100),
+						gomock.Any(), "test-group", testTenant, "test_topic", "part-1", int64(100),
 					).Return(nil)
 				}
 			}
 
 			if tt.expectAck {
 				mockDeliveryState.EXPECT().MarkAcked(
-					gomock.Any(), "test-group", "test_topic", "part-1", int64(100),
+					gomock.Any(), "test-group", testTenant, "test_topic", "part-1", int64(100),
 				).Return(nil)
 			}
 
@@ -557,6 +561,7 @@ func TestSQLDelivery_NackDeadLettersWhenBudgetSpent(t *testing.T) {
 				NewMockpartitionLeaseStore(ctrl),
 				newTestHeartbeatStore(ctrl),
 				mockDeliveryState,
+				[]string{testTenant},
 			)
 
 			dlqConfig := extqueue.DLQConfig{Enabled: true, TopicSuffix: "_dlq"}
@@ -566,14 +571,14 @@ func TestSQLDelivery_NackDeadLettersWhenBudgetSpent(t *testing.T) {
 
 			if tt.wantDLQ {
 				mockMsgStore.EXPECT().MoveToDLQ(
-					gomock.Any(), "test_topic", "part-1", "msg-1", tt.attempt, f, "_dlq",
+					gomock.Any(), testTenant, "test_topic", "part-1", "msg-1", tt.attempt, f, "_dlq",
 				).Return(nil)
 				mockDeliveryState.EXPECT().MarkAcked(
-					gomock.Any(), "test-group", "test_topic", "part-1", int64(100),
+					gomock.Any(), "test-group", testTenant, "test_topic", "part-1", int64(100),
 				).Return(nil)
 			} else {
 				mockDeliveryState.EXPECT().MarkNacked(
-					gomock.Any(), "test-group", "test_topic", "part-1", int64(100), tt.wantRetryDelayMs,
+					gomock.Any(), "test-group", testTenant, "test_topic", "part-1", int64(100), tt.wantRetryDelayMs,
 				).Return(nil)
 			}
 
@@ -598,6 +603,7 @@ func TestSQLDelivery_FailureAbsentOnNormalDelivery(t *testing.T) {
 		NewMockpartitionLeaseStore(ctrl),
 		newTestHeartbeatStore(ctrl),
 		NewMockdeliveryStateStore(ctrl),
+		[]string{testTenant},
 	)
 
 	d := newDeliveryForTest(sub, 1, extqueue.DLQConfig{}, extqueue.RetryConfig{})
@@ -648,7 +654,7 @@ func TestSubscriber_Close(t *testing.T) {
 			mockLeaseStore := NewMockpartitionLeaseStore(ctrl)
 
 			// Expect lease operations during cleanup
-			mockLeaseStore.EXPECT().GetLeasedPartitions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{}, nil).AnyTimes()
+			mockLeaseStore.EXPECT().GetLeasedPartitions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{}, nil).AnyTimes()
 
 			sub := setupSubscriberTest(t, mockMessageStore, mockOffsetStore, mockLeaseStore)
 			ctx := context.Background()
@@ -722,15 +728,16 @@ func TestSubscriber_ReconcilePartitionWorkers(t *testing.T) {
 				mockLeaseStore,
 				newTestHeartbeatStore(ctrl),
 				newTestDeliveryStateStore(ctrl),
+				[]string{testTenant},
 			)
 
 			// Allow offset initialization, fetch, and watermark calls from workers
-			mockOffsetStore.EXPECT().Initialize(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-			mockOffsetStore.EXPECT().GetAckedOffset(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
-			mockMessageStore.EXPECT().FetchByOffset(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-			mockMessageStore.EXPECT().GetOffsetsAbove(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-			mockMessageStore.EXPECT().GarbageCollect(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
-			mockOffsetStore.EXPECT().GetMinAckedOffset(gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), false, nil).AnyTimes()
+			mockOffsetStore.EXPECT().Initialize(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			mockOffsetStore.EXPECT().GetAckedOffset(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
+			mockMessageStore.EXPECT().FetchByOffset(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+			mockMessageStore.EXPECT().GetOffsetsAbove(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+			mockMessageStore.EXPECT().GarbageCollect(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
+			mockOffsetStore.EXPECT().GetMinAckedOffset(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), false, nil).AnyTimes()
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -743,19 +750,19 @@ func TestSubscriber_ReconcilePartitionWorkers(t *testing.T) {
 			}
 
 			// Start initial workers
-			s.reconcilePartitionWorkers(ctx, sub, tt.initialLeases)
+			s.reconcilePartitionWorkers(ctx, sub, tenantPartitionKeys(testTenant, tt.initialLeases))
 
 			sub.workersMu.Lock()
 			assert.Equal(t, len(tt.initialLeases), len(sub.workers))
 			sub.workersMu.Unlock()
 
 			// Reconcile with updated leases
-			s.reconcilePartitionWorkers(ctx, sub, tt.updatedLeases)
+			s.reconcilePartitionWorkers(ctx, sub, tenantPartitionKeys(testTenant, tt.updatedLeases))
 
 			sub.workersMu.Lock()
 			assert.Equal(t, len(tt.updatedLeases), len(sub.workers))
 			for _, pk := range tt.updatedLeases {
-				assert.Contains(t, sub.workers, pk)
+				assert.Contains(t, sub.workers, workerKey(testTenant, pk))
 			}
 			sub.workersMu.Unlock()
 
@@ -784,6 +791,7 @@ func TestSubscriber_PartitionWorkerPollAndDeliver(t *testing.T) {
 		mockLeaseStore,
 		newTestHeartbeatStore(ctrl),
 		mockDeliveryState,
+		[]string{testTenant},
 	)
 
 	cfg := testSubscriptionConfig()
@@ -797,9 +805,9 @@ func TestSubscriber_PartitionWorkerPollAndDeliver(t *testing.T) {
 
 	ctx := context.Background()
 
-	mockOffsetStore.EXPECT().Initialize(gomock.Any(), "test_topic", "part-1", cfg.ConsumerGroup).Return(nil)
+	mockOffsetStore.EXPECT().Initialize(gomock.Any(), testTenant, "test_topic", "part-1", cfg.ConsumerGroup).Return(nil)
 	// GetAckedOffset is called twice: once by pollAndDeliver, once by advanceWatermark
-	mockOffsetStore.EXPECT().GetAckedOffset(gomock.Any(), "test_topic", "part-1", cfg.ConsumerGroup).Return(int64(0), nil).Times(2)
+	mockOffsetStore.EXPECT().GetAckedOffset(gomock.Any(), testTenant, "test_topic", "part-1", cfg.ConsumerGroup).Return(int64(0), nil).Times(2)
 
 	row := messageRow{
 		ID:           "msg-1",
@@ -808,19 +816,20 @@ func TestSubscriber_PartitionWorkerPollAndDeliver(t *testing.T) {
 		Payload:      []byte("payload"),
 		PublishedAt:  time.Now().UnixMilli(),
 	}
-	mockMessageStore.EXPECT().FetchByOffset(gomock.Any(), "test_topic", "part-1", int64(0), cfg.BatchSize).
+	mockMessageStore.EXPECT().FetchByOffset(gomock.Any(), testTenant, "test_topic", "part-1", int64(0), cfg.BatchSize).
 		Return([]messageRow{row}, nil)
 
 	// Delivery state checks — GetDeliveryState returns not-found (new message)
-	mockDeliveryState.EXPECT().GetDeliveryState(gomock.Any(), cfg.ConsumerGroup, "test_topic", "part-1", int64(1)).Return(DeliveryState{}, false, nil)
+	mockDeliveryState.EXPECT().GetDeliveryState(gomock.Any(), cfg.ConsumerGroup, testTenant, "test_topic", "part-1", int64(1)).Return(DeliveryState{}, false, nil)
 	// MarkDelivered returns retry count 0 (first delivery)
-	mockDeliveryState.EXPECT().MarkDelivered(gomock.Any(), cfg.ConsumerGroup, "test_topic", "part-1", int64(1), cfg.VisibilityTimeoutMs).Return(0, nil)
+	mockDeliveryState.EXPECT().MarkDelivered(gomock.Any(), cfg.ConsumerGroup, testTenant, "test_topic", "part-1", int64(1), cfg.VisibilityTimeoutMs).Return(0, nil)
 
 	// advanceWatermark called at end of pollAndDeliver
-	mockMessageStore.EXPECT().GetOffsetsAbove(gomock.Any(), "test_topic", "part-1", int64(0), watermarkAdvancementLimit).Return([]int64{1}, nil)
-	mockDeliveryState.EXPECT().AdvanceWatermark(gomock.Any(), cfg.ConsumerGroup, "test_topic", "part-1", int64(0), []int64{1}).Return(int64(0), nil)
+	mockMessageStore.EXPECT().GetOffsetsAbove(gomock.Any(), testTenant, "test_topic", "part-1", int64(0), watermarkAdvancementLimit).Return([]int64{1}, nil)
+	mockDeliveryState.EXPECT().AdvanceWatermark(gomock.Any(), cfg.ConsumerGroup, testTenant, "test_topic", "part-1", int64(0), []int64{1}).Return(int64(0), nil)
 
 	w := &partitionWorker{
+		tenant:       testTenant,
 		partitionKey: "part-1",
 		sub:          sub,
 		subscriber:   s,
@@ -892,6 +901,7 @@ func TestSubscriber_PollAndDeliver_GCOnBusyTicks(t *testing.T) {
 		workers:    make(map[string]*partitionWorker),
 	}
 	w := &partitionWorker{
+		tenant:       testTenant,
 		partitionKey: "part-1",
 		sub:          sub,
 		subscriber:   s,
@@ -906,13 +916,13 @@ func TestSubscriber_PollAndDeliver_GCOnBusyTicks(t *testing.T) {
 		PublishedAt:  time.Now().UnixMilli(),
 	}
 	// Every poll delivers one message, so the partition never idles.
-	mockMessageStore.EXPECT().FetchByOffset(gomock.Any(), "test_topic", "part-1", int64(0), cfg.BatchSize).
+	mockMessageStore.EXPECT().FetchByOffset(gomock.Any(), testTenant, "test_topic", "part-1", int64(0), cfg.BatchSize).
 		Return([]messageRow{row}, nil).Times(3)
-	mockOffsetStore.EXPECT().Initialize(gomock.Any(), "test_topic", "part-1", cfg.ConsumerGroup).Return(nil)
+	mockOffsetStore.EXPECT().Initialize(gomock.Any(), testTenant, "test_topic", "part-1", cfg.ConsumerGroup).Return(nil)
 
 	// The counter reaches gcTickInterval on the second busy tick.
-	mockOffsetStore.EXPECT().GetMinAckedOffset(gomock.Any(), "test_topic", "part-1").Return(int64(1), true, nil)
-	mockMessageStore.EXPECT().GarbageCollect(gomock.Any(), "test_topic", "part-1", int64(1)).Return(int64(1), nil)
+	mockOffsetStore.EXPECT().GetMinAckedOffset(gomock.Any(), testTenant, "test_topic", "part-1").Return(int64(1), true, nil)
+	mockMessageStore.EXPECT().GarbageCollect(gomock.Any(), testTenant, "test_topic", "part-1", int64(1)).Return(int64(1), nil)
 
 	ctx := context.Background()
 	for i := 0; i < 3; i++ {
@@ -974,6 +984,7 @@ func TestSubscriber_PollAndDeliver_PostponedBarrier(t *testing.T) {
 				mockLeaseStore,
 				newTestHeartbeatStore(ctrl),
 				mockDeliveryState,
+				[]string{testTenant},
 			)
 
 			cfg := testSubscriptionConfig()
@@ -987,32 +998,33 @@ func TestSubscriber_PollAndDeliver_PostponedBarrier(t *testing.T) {
 
 			ctx := context.Background()
 
-			mockOffsetStore.EXPECT().Initialize(gomock.Any(), "test_topic", "part-1", cfg.ConsumerGroup).Return(nil)
-			mockOffsetStore.EXPECT().GetAckedOffset(gomock.Any(), "test_topic", "part-1", cfg.ConsumerGroup).Return(int64(0), nil).Times(2)
+			mockOffsetStore.EXPECT().Initialize(gomock.Any(), testTenant, "test_topic", "part-1", cfg.ConsumerGroup).Return(nil)
+			mockOffsetStore.EXPECT().GetAckedOffset(gomock.Any(), testTenant, "test_topic", "part-1", cfg.ConsumerGroup).Return(int64(0), nil).Times(2)
 
 			rows := []messageRow{
 				{ID: "msg-1", Offset: 1, PartitionKey: "part-1", Payload: []byte("p1"), PublishedAt: time.Now().UnixMilli()},
 				{ID: "msg-2", Offset: 2, PartitionKey: "part-1", Payload: []byte("p2"), PublishedAt: time.Now().UnixMilli()},
 				{ID: "msg-3", Offset: 3, PartitionKey: "part-1", Payload: []byte("p3"), PublishedAt: time.Now().UnixMilli()},
 			}
-			mockMessageStore.EXPECT().FetchByOffset(gomock.Any(), "test_topic", "part-1", int64(0), cfg.BatchSize).
+			mockMessageStore.EXPECT().FetchByOffset(gomock.Any(), testTenant, "test_topic", "part-1", int64(0), cfg.BatchSize).
 				Return(rows, nil)
 
-			mockDeliveryState.EXPECT().GetDeliveryState(gomock.Any(), cfg.ConsumerGroup, "test_topic", "part-1", int64(1)).
+			mockDeliveryState.EXPECT().GetDeliveryState(gomock.Any(), cfg.ConsumerGroup, testTenant, "test_topic", "part-1", int64(1)).
 				Return(tt.firstRowState, true, nil)
 			if tt.expectDeliveries > 0 {
 				for _, offset := range []int64{2, 3} {
-					mockDeliveryState.EXPECT().GetDeliveryState(gomock.Any(), cfg.ConsumerGroup, "test_topic", "part-1", offset).
+					mockDeliveryState.EXPECT().GetDeliveryState(gomock.Any(), cfg.ConsumerGroup, testTenant, "test_topic", "part-1", offset).
 						Return(DeliveryState{}, false, nil)
-					mockDeliveryState.EXPECT().MarkDelivered(gomock.Any(), cfg.ConsumerGroup, "test_topic", "part-1", offset, cfg.VisibilityTimeoutMs).
+					mockDeliveryState.EXPECT().MarkDelivered(gomock.Any(), cfg.ConsumerGroup, testTenant, "test_topic", "part-1", offset, cfg.VisibilityTimeoutMs).
 						Return(0, nil)
 				}
 			}
 
-			mockMessageStore.EXPECT().GetOffsetsAbove(gomock.Any(), "test_topic", "part-1", int64(0), watermarkAdvancementLimit).Return(nil, nil)
-			mockDeliveryState.EXPECT().AdvanceWatermark(gomock.Any(), cfg.ConsumerGroup, "test_topic", "part-1", int64(0), gomock.Nil()).Return(int64(0), nil)
+			mockMessageStore.EXPECT().GetOffsetsAbove(gomock.Any(), testTenant, "test_topic", "part-1", int64(0), watermarkAdvancementLimit).Return(nil, nil)
+			mockDeliveryState.EXPECT().AdvanceWatermark(gomock.Any(), cfg.ConsumerGroup, testTenant, "test_topic", "part-1", int64(0), gomock.Nil()).Return(int64(0), nil)
 
 			w := &partitionWorker{
+				tenant:       testTenant,
 				partitionKey: "part-1",
 				sub:          sub,
 				subscriber:   s,
@@ -1052,15 +1064,16 @@ func TestSubscriber_StopAllWorkers(t *testing.T) {
 		mockLeaseStore,
 		newTestHeartbeatStore(ctrl),
 		newTestDeliveryStateStore(ctrl),
+		[]string{testTenant},
 	)
 
 	// Allow worker polling and watermark advancement
-	mockOffsetStore.EXPECT().Initialize(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockOffsetStore.EXPECT().GetAckedOffset(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
-	mockMessageStore.EXPECT().FetchByOffset(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	mockMessageStore.EXPECT().GetOffsetsAbove(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	mockMessageStore.EXPECT().GarbageCollect(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
-	mockOffsetStore.EXPECT().GetMinAckedOffset(gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), false, nil).AnyTimes()
+	mockOffsetStore.EXPECT().Initialize(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockOffsetStore.EXPECT().GetAckedOffset(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
+	mockMessageStore.EXPECT().FetchByOffset(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockMessageStore.EXPECT().GetOffsetsAbove(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockMessageStore.EXPECT().GarbageCollect(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
+	mockOffsetStore.EXPECT().GetMinAckedOffset(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), false, nil).AnyTimes()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1073,9 +1086,9 @@ func TestSubscriber_StopAllWorkers(t *testing.T) {
 	}
 
 	// Start 3 workers
-	s.startPartitionWorker(ctx, sub, "part-1")
-	s.startPartitionWorker(ctx, sub, "part-2")
-	s.startPartitionWorker(ctx, sub, "part-3")
+	s.startPartitionWorker(ctx, sub, testTenant, "part-1")
+	s.startPartitionWorker(ctx, sub, testTenant, "part-2")
+	s.startPartitionWorker(ctx, sub, testTenant, "part-3")
 
 	sub.workersMu.Lock()
 	assert.Equal(t, 3, len(sub.workers))
@@ -1137,9 +1150,9 @@ func TestPartitionWorker_RunPollErrorLogging(t *testing.T) {
 			mockLeaseStore := NewMockpartitionLeaseStore(ctrl)
 
 			pollStarted := make(chan struct{}, 1)
-			mockOffsetStore.EXPECT().Initialize(gomock.Any(), "test_topic", "part-1", "test-consumer").Return(nil)
-			mockOffsetStore.EXPECT().GetAckedOffset(gomock.Any(), "test_topic", "part-1", "test-consumer").DoAndReturn(
-				func(ctx context.Context, _, _, _ string) (int64, error) {
+			mockOffsetStore.EXPECT().Initialize(gomock.Any(), testTenant, "test_topic", "part-1", "test-consumer").Return(nil)
+			mockOffsetStore.EXPECT().GetAckedOffset(gomock.Any(), testTenant, "test_topic", "part-1", "test-consumer").DoAndReturn(
+				func(ctx context.Context, _, _, _, _ string) (int64, error) {
 					select {
 					case pollStarted <- struct{}{}:
 					default:
@@ -1157,6 +1170,7 @@ func TestPartitionWorker_RunPollErrorLogging(t *testing.T) {
 				mockLeaseStore,
 				newTestHeartbeatStore(ctrl),
 				newTestDeliveryStateStore(ctrl),
+				[]string{testTenant},
 			)
 			s.OnSignal = make(chan HookSignal, 1)
 			cfg := testSubscriptionConfig()
@@ -1167,6 +1181,7 @@ func TestPartitionWorker_RunPollErrorLogging(t *testing.T) {
 				deliveryCh: make(chan extqueue.Delivery, 1),
 			}
 			worker := &partitionWorker{
+				tenant:       testTenant,
 				partitionKey: "part-1",
 				sub:          sub,
 				subscriber:   s,
@@ -1280,7 +1295,7 @@ func TestSubscriber_FairShareCap(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockHB := NewMocksubscriberHeartbeatStore(ctrl)
 			mockHB.EXPECT().
-				ActiveSubscribers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				ActiveSubscribers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 				Return(tt.active, nil).
 				AnyTimes()
 
@@ -1289,13 +1304,14 @@ func TestSubscriber_FairShareCap(t *testing.T) {
 				NewMockmessageStore(ctrl), NewMockoffsetStore(ctrl),
 				NewMockpartitionLeaseStore(ctrl), mockHB,
 				NewMockdeliveryStateStore(ctrl),
+				[]string{testTenant},
 			)
 			sub := &subscription{
 				topic:  "test-topic",
 				config: extqueue.DefaultSubscriptionConfig(tt.self, "test-cg"),
 			}
 
-			got, err := s.fairShareCap(context.Background(), sub, tt.owned, tt.discovered)
+			got, err := s.fairShareCap(context.Background(), sub, testTenant, tt.owned, tt.discovered)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
@@ -1315,7 +1331,7 @@ func TestSubscriber_FairShareCap(t *testing.T) {
 				ctrl := gomock.NewController(t)
 				mockHB := NewMocksubscriberHeartbeatStore(ctrl)
 				mockHB.EXPECT().
-					ActiveSubscribers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					ActiveSubscribers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(active, nil).
 					AnyTimes()
 				s := NewSubscriber(
@@ -1323,6 +1339,7 @@ func TestSubscriber_FairShareCap(t *testing.T) {
 					NewMockmessageStore(ctrl), NewMockoffsetStore(ctrl),
 					NewMockpartitionLeaseStore(ctrl), mockHB,
 					NewMockdeliveryStateStore(ctrl),
+					[]string{testTenant},
 				)
 
 				sum := 0
@@ -1331,7 +1348,7 @@ func TestSubscriber_FairShareCap(t *testing.T) {
 						topic:  "test-topic",
 						config: extqueue.DefaultSubscriptionConfig(self, "test-cg"),
 					}
-					cap, err := s.fairShareCap(context.Background(), sub, nil, partitionKeysN(p))
+					cap, err := s.fairShareCap(context.Background(), sub, testTenant, nil, partitionKeysN(p))
 					require.NoError(t, err)
 					sum += cap
 				}
@@ -1350,28 +1367,37 @@ func partitionKeysN(n int) []string {
 	return keys
 }
 
+func tenantPartitionKeys(tenant string, partitions []string) []string {
+	keys := make([]string, len(partitions))
+	for i, partition := range partitions {
+		keys[i] = workerKey(tenant, partition)
+	}
+	return keys
+}
+
 func TestSubscriber_RebalanceReleasesExcess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	// Two active subscribers, four partitions: self is rank 0 -> cap 2.
 	mockHB := NewMocksubscriberHeartbeatStore(ctrl)
 	mockHB.EXPECT().
-		ActiveSubscribers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ActiveSubscribers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return([]string{"s1", "s2"}, nil)
 
 	// The lexicographically largest partitions beyond the cap are released.
 	mockLease := NewMockpartitionLeaseStore(ctrl)
 	mockLease.EXPECT().
-		ReleaseLease(gomock.Any(), "test-topic", "pk-c", "s1", "test-cg").
+		ReleaseLease(gomock.Any(), testTenant, "test-topic", "pk-c", "s1", "test-cg").
 		Return(nil)
 	mockLease.EXPECT().
-		ReleaseLease(gomock.Any(), "test-topic", "pk-d", "s1", "test-cg").
+		ReleaseLease(gomock.Any(), testTenant, "test-topic", "pk-d", "s1", "test-cg").
 		Return(nil)
 
 	s := NewSubscriber(
 		zaptest.NewLogger(t).Sugar(), tally.NoopScope,
 		NewMockmessageStore(ctrl), NewMockoffsetStore(ctrl),
 		mockLease, mockHB, NewMockdeliveryStateStore(ctrl),
+		[]string{testTenant},
 	)
 	sub := &subscription{
 		topic:   "test-topic",
@@ -1380,7 +1406,7 @@ func TestSubscriber_RebalanceReleasesExcess(t *testing.T) {
 	}
 
 	owned := []string{"pk-d", "pk-a", "pk-c", "pk-b"}
-	released, err := s.rebalance(context.Background(), sub, owned)
+	released, err := s.rebalance(context.Background(), sub, testTenant, owned)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"pk-c", "pk-d"}, released)
 	// The caller's slice is shared with lease renewal and must not be
@@ -1394,7 +1420,7 @@ func TestSubscriber_RebalanceUnderCapReleasesNothing(t *testing.T) {
 
 	mockHB := NewMocksubscriberHeartbeatStore(ctrl)
 	mockHB.EXPECT().
-		ActiveSubscribers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		ActiveSubscribers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return([]string{"s1", "s2"}, nil)
 
 	// No ReleaseLease expectations: owning exactly the cap sheds nothing.
@@ -1402,6 +1428,7 @@ func TestSubscriber_RebalanceUnderCapReleasesNothing(t *testing.T) {
 		zaptest.NewLogger(t).Sugar(), tally.NoopScope,
 		NewMockmessageStore(ctrl), NewMockoffsetStore(ctrl),
 		NewMockpartitionLeaseStore(ctrl), mockHB, NewMockdeliveryStateStore(ctrl),
+		[]string{testTenant},
 	)
 	sub := &subscription{
 		topic:   "test-topic",
@@ -1409,10 +1436,10 @@ func TestSubscriber_RebalanceUnderCapReleasesNothing(t *testing.T) {
 		workers: make(map[string]*partitionWorker),
 		// Four known partitions across two subscribers -> rank-0 cap is 2:
 		// owning exactly the cap must shed nothing.
-		lastDiscoveredPartitions: []string{"pk-a", "pk-b", "pk-c", "pk-d"},
+		lastDiscoveredPartitions: tenantPartitionKeys(testTenant, []string{"pk-a", "pk-b", "pk-c", "pk-d"}),
 	}
 
-	released, err := s.rebalance(context.Background(), sub, []string{"pk-a", "pk-b"})
+	released, err := s.rebalance(context.Background(), sub, testTenant, []string{"pk-a", "pk-b"})
 	require.NoError(t, err)
 	assert.Empty(t, released)
 }

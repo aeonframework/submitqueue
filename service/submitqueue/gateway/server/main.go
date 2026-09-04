@@ -241,12 +241,33 @@ func run() error {
 	}
 	defer queueDB.Close()
 
-	// Initialize queue
+	// Load queue configurations from YAML. Path is required so the gateway
+	// can reject requests for unknown queues at the edge. Queue names are
+	// also the MQ tenant list and must be known before NewQueue so the
+	// subscriber can discover partitions.
+	queueConfigPath := os.Getenv("QUEUE_CONFIG_PATH")
+	if queueConfigPath == "" {
+		return fmt.Errorf("QUEUE_CONFIG_PATH environment variable is required")
+	}
+	queueConfigs, err := yamlqueueconfig.NewStore(queueConfigPath)
+	if err != nil {
+		return fmt.Errorf("failed to load queue configs: %w", err)
+	}
+	configuredQueues, err := queueConfigs.List(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list queue configs: %w", err)
+	}
+	tenants := make([]string, 0, len(configuredQueues))
+	for _, q := range configuredQueues {
+		tenants = append(tenants, q.Name)
+	}
+
 	mysqlQueue, err := queueMySQL.NewQueue(queueMySQL.Params{
 		DB:           queueDB,
 		Logger:       logger,
 		LogLevel:     os.Getenv("QUEUE_LOG_LEVEL"),
 		MetricsScope: scope.SubScope("queue"),
+		Tenants:      tenants,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create queue: %w", err)
@@ -313,16 +334,6 @@ func run() error {
 	store, err := mysqlstorage.NewStorage(appDB, scope.SubScope("storage"))
 	if err != nil {
 		return fmt.Errorf("failed to create storage: %w", err)
-	}
-	// Load queue configurations from YAML. Path is required so the gateway
-	// can reject requests for unknown queues at the edge.
-	queueConfigPath := os.Getenv("QUEUE_CONFIG_PATH")
-	if queueConfigPath == "" {
-		return fmt.Errorf("QUEUE_CONFIG_PATH environment variable is required")
-	}
-	queueConfigs, err := yamlqueueconfig.NewStore(queueConfigPath)
-	if err != nil {
-		return fmt.Errorf("failed to load queue configs: %w", err)
 	}
 
 	// Create controllers and wrap them for gRPC. Every store is queue-scoped and

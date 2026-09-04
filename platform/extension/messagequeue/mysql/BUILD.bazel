@@ -15,6 +15,7 @@ go_library(
         "stores.go",
         "subscriber.go",
         "subscriber_heartbeat_store.go",
+        "tenants.go",
     ],
     importpath = "github.com/uber/submitqueue/platform/extension/messagequeue/mysql",
     visibility = ["//visibility:public"],

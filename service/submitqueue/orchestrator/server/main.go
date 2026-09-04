@@ -156,12 +156,21 @@ func run() error {
 	}
 	defer queueDB.Close()
 
-	// Initialize queue
+	// Build per-queue extension profiles (host-private). Each queue resolves
+	// to its own set of extension implementations (conflict analyzer, …),
+	// falling back to a baseline profile for queues without an explicit entry.
+	storageFty := storageFactory{backend: store}
+	profilesCfg, err := loadProfilesConfigFromEnv(logger)
+	if err != nil {
+		return fmt.Errorf("failed to load extension profiles: %w", err)
+	}
+
 	mysqlQueue, err := queueMySQL.NewQueue(queueMySQL.Params{
 		DB:           queueDB,
 		Logger:       logger,
 		LogLevel:     os.Getenv("QUEUE_LOG_LEVEL"),
 		MetricsScope: scope.SubScope("queue"),
+		Tenants:      tenantNamesFromProfiles(profilesCfg),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create queue: %w", err)
@@ -176,14 +185,6 @@ func run() error {
 		subscriberName = fmt.Sprintf("orchestrator-%d", time.Now().Unix())
 	}
 
-	// Build per-queue extension profiles (host-private). Each queue resolves
-	// to its own set of extension implementations (conflict analyzer, …),
-	// falling back to a baseline profile for queues without an explicit entry.
-	storageFty := storageFactory{backend: store}
-	profilesCfg, err := loadProfilesConfigFromEnv(logger)
-	if err != nil {
-		return fmt.Errorf("failed to load extension profiles: %w", err)
-	}
 	profiles, err := newProfiles(ctx, logger, scope, changeset.New(storageFty), storageFty, profilesCfg)
 	if err != nil {
 		return fmt.Errorf("failed to build profiles: %w", err)
@@ -339,6 +340,14 @@ func loadProfilesConfigFromEnv(logger *zap.Logger) (profilesConfig, error) {
 	}
 	logger.Info("extension profiles loaded", zap.String("path", path), zap.Int("queues", len(cfg.Queues)))
 	return cfg, nil
+}
+
+func tenantNamesFromProfiles(cfg profilesConfig) []string {
+	names := make([]string, 0, len(cfg.Queues))
+	for _, q := range cfg.Queues {
+		names = append(names, q.Name)
+	}
+	return names
 }
 
 // defaultProfilesConfig is the example topology used when no configuration file

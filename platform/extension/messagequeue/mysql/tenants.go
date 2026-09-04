@@ -14,13 +14,18 @@
 
 package mysql
 
-// Common constants for frequently repeated strings across stores
-
-const (
-	// Common log field names (used extensively across all stores)
-	logTenant       = "tenant"
-	logTopic        = "topic"
-	logPartitionKey = "partition_key"
-	logMessageID    = "message_id"
-	logError        = "error"
+import (
+	"os"
+	"strings"
 )
+
+// ParseTenantsFromEnv reads MQ_TENANTS env var (comma-separated).
+func ParseTenantsFromEnv() []string {
+	var out []string
+	for _, part := range strings.Split(os.Getenv("MQ_TENANTS"), ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}

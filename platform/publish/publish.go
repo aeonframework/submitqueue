@@ -68,6 +68,11 @@ func MessageWithMetadata(ctx context.Context, registry consumer.TopicRegistry, k
 	}
 
 	msg := entityqueue.NewMessage(msgID, payload, partitionKey, metadataFromContext(ctx, metadata))
+	if tenant := msg.Metadata[entityqueue.MetadataKeyQueueName]; tenant != "" {
+		msg.Tenant = tenant
+	} else if queueName, ok := entityqueue.QueueName(ctx); ok {
+		msg.Tenant = queueName
+	}
 	return q.Publisher().Publish(ctx, topicName, msg)
 }
 

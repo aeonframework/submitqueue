@@ -168,6 +168,7 @@ func (s *RunwayE2ESuite) publishRaw(topic, id, partitionKey string, payload []by
 	t := s.T()
 
 	msg := entityqueue.NewMessage(id, payload, partitionKey, nil)
+	msg.Tenant = partitionKey
 	require.NoError(t, s.queue.Publisher().Publish(s.ctx, topic, msg),
 		"failed to publish %s to %s", id, topic)
 	s.log.Logf("published %s to %s (partition %s)", id, topic, partitionKey)

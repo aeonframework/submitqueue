@@ -47,7 +47,7 @@ func TestCheck(t *testing.T) {
 				") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
 			wantTables:     1,
 			wantViolations: 1,
-			wantProblem:    `leads its PRIMARY KEY with "request_id", not the queue column`,
+			wantProblem:    `leads its PRIMARY KEY with "request_id", not a shard column`,
 		},
 		{
 			name: "queue present but not leading is rejected",
@@ -87,7 +87,7 @@ func TestCheck(t *testing.T) {
 				") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
 			wantTables:     1,
 			wantViolations: 1,
-			wantProblem:    `has index "idx_status" leading with "status", which spans queues`,
+			wantProblem:    `has index "idx_status" leading with "status", which spans shards`,
 		},
 		{
 			name: "a queue-leading secondary index passes",
@@ -118,7 +118,7 @@ func TestCheck(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tables, violations := check("test.sql", tt.schema)
+			tables, violations := check("test.sql", tt.schema, map[string]bool{"queue": true, "name": true})
 			assert.Equal(t, tt.wantTables, tables)
 			require.Len(t, violations, tt.wantViolations)
 			if tt.wantProblem != "" {

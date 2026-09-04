@@ -57,7 +57,11 @@ func (p *publisher) Publish(ctx context.Context, topic string, message entityque
 		return ErrPublisherClosed
 	}
 
-	if err := p.messageStore.Insert(ctx, topic, []entityqueue.Message{message}); err != nil {
+	if message.Tenant == "" {
+		return fmt.Errorf("publish: message tenant is required")
+	}
+
+	if err := p.messageStore.Insert(ctx, message.Tenant, topic, []entityqueue.Message{message}); err != nil {
 		return fmt.Errorf("publish message store insert error: %w", err)
 	}
 

@@ -35,6 +35,7 @@ import (
 	changepb "github.com/uber/submitqueue/api/base/change/protopb"
 	mergestrategypb "github.com/uber/submitqueue/api/base/mergestrategy/protopb"
 	gatewaypb "github.com/uber/submitqueue/api/submitqueue/gateway/protopb"
+	entityqueue "github.com/uber/submitqueue/platform/base/messagequeue"
 	"github.com/uber/submitqueue/platform/consumer"
 	"github.com/uber/submitqueue/platform/extension/consumergate"
 	queuemysql "github.com/uber/submitqueue/platform/extension/messagequeue/mysql"
@@ -286,6 +287,7 @@ func (s *E2EIntegrationSuite) redeliverBatchMessage(req request) {
 		DB:           s.queueDB,
 		Logger:       zap.NewNop(),
 		MetricsScope: tally.NoopScope,
+		Tenants:      []string{req.queue},
 	})
 	require.NoError(t, err, "failed to open the queue for a manual publish")
 	defer func() { require.NoError(t, queue.Close()) }()
@@ -298,7 +300,7 @@ func (s *E2EIntegrationSuite) redeliverBatchMessage(req request) {
 	payload, err := entity.RequestID{ID: req.sqid, Queue: req.queue}.ToBytes()
 	require.NoError(t, err)
 
-	require.NoError(t, publish.Message(s.ctx, registry, topickey.TopicKeyBatch,
+	require.NoError(t, publish.Message(entityqueue.WithQueueName(s.ctx, req.queue), registry, topickey.TopicKeyBatch,
 		publish.UniqueID(req.sqid), payload, req.queue), "failed to redeliver the batch message")
 	s.log.Logf("Redelivered the batch message for %s", req.sqid)
 }

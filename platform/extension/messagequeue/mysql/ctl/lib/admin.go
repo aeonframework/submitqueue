@@ -37,6 +37,8 @@ func NewAdminStore(db *sql.DB) *AdminStore {
 
 // MessageSummary contains a subset of message fields for listing.
 type MessageSummary struct {
+	// Tenant identifies the queue tenant.
+	Tenant string
 	// Offset is the auto-incrementing sequence number
 	Offset int64
 	// ID is the unique message identifier
@@ -70,6 +72,8 @@ type MessageDetail struct {
 
 // OffsetInfo contains consumer group offset information.
 type OffsetInfo struct {
+	// Tenant identifies the queue tenant.
+	Tenant string
 	// ConsumerGroup is the consumer group name
 	ConsumerGroup string
 	// Topic is the topic being consumed
@@ -84,6 +88,8 @@ type OffsetInfo struct {
 
 // LeaseInfo contains partition lease information.
 type LeaseInfo struct {
+	// Tenant identifies the queue tenant.
+	Tenant string
 	// ConsumerGroup is the consumer group name
 	ConsumerGroup string
 	// Topic is the topic being consumed
@@ -100,6 +106,8 @@ type LeaseInfo struct {
 
 // TopicInfo contains a topic name and its message count.
 type TopicInfo struct {
+	// Tenant identifies the queue tenant.
+	Tenant string
 	// Topic is the queue topic name
 	Topic string
 	// MessageCount is the number of messages in this topic
@@ -108,6 +116,8 @@ type TopicInfo struct {
 
 // TopicStats contains detailed statistics for a topic.
 type TopicStats struct {
+	// Tenant identifies the queue tenant.
+	Tenant string
 	// Topic is the queue topic name
 	Topic string
 	// TotalMessages is the total number of messages
@@ -123,7 +133,7 @@ type TopicStats struct {
 // ListTopics returns all topics with their message counts.
 func (s *AdminStore) ListTopics(ctx context.Context) ([]TopicInfo, error) {
 	query := fmt.Sprintf(
-		"SELECT topic, COUNT(*) FROM %s GROUP BY topic ORDER BY topic",
+		"SELECT tenant, topic, COUNT(*) FROM %s GROUP BY tenant, topic ORDER BY tenant, topic",
 		mysql.MessagesTableName,
 	)
 	rows, err := s.db.QueryContext(ctx, query)
@@ -135,7 +145,7 @@ func (s *AdminStore) ListTopics(ctx context.Context) ([]TopicInfo, error) {
 	var topics []TopicInfo
 	for rows.Next() {
 		var t TopicInfo
-		if err := rows.Scan(&t.Topic, &t.MessageCount); err != nil {
+		if err := rows.Scan(&t.Tenant, &t.Topic, &t.MessageCount); err != nil {
 			return nil, fmt.Errorf("scan topic row: %w", err)
 		}
 		topics = append(topics, t)
@@ -144,13 +154,13 @@ func (s *AdminStore) ListTopics(ctx context.Context) ([]TopicInfo, error) {
 }
 
 // GetTopicStats returns detailed statistics for a topic.
-func (s *AdminStore) GetTopicStats(ctx context.Context, topic string, dlqSuffix string) (TopicStats, error) {
-	stats := TopicStats{Topic: topic}
+func (s *AdminStore) GetTopicStats(ctx context.Context, tenant string, topic string, dlqSuffix string) (TopicStats, error) {
+	stats := TopicStats{Tenant: tenant, Topic: topic}
 
 	// Total messages
 	err := s.db.QueryRowContext(ctx,
-		fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE topic = ?", mysql.MessagesTableName),
-		topic,
+		fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE tenant = ? AND topic = ?", mysql.MessagesTableName),
+		tenant, topic,
 	).Scan(&stats.TotalMessages)
 	if err != nil {
 		return stats, fmt.Errorf("count total: %w", err)
@@ -159,8 +169,8 @@ func (s *AdminStore) GetTopicStats(ctx context.Context, topic string, dlqSuffix 
 	// DLQ count
 	dlqTopic := topic + dlqSuffix
 	err = s.db.QueryRowContext(ctx,
-		fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE topic = ?", mysql.MessagesTableName),
-		dlqTopic,
+		fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE tenant = ? AND topic = ?", mysql.MessagesTableName),
+		tenant, dlqTopic,
 	).Scan(&stats.DLQCount)
 	if err != nil {
 		return stats, fmt.Errorf("count dlq: %w", err)
@@ -168,8 +178,8 @@ func (s *AdminStore) GetTopicStats(ctx context.Context, topic string, dlqSuffix 
 
 	// Distinct partitions
 	err = s.db.QueryRowContext(ctx,
-		fmt.Sprintf("SELECT COUNT(DISTINCT partition_key) FROM %s WHERE topic = ?", mysql.MessagesTableName),
-		topic,
+		fmt.Sprintf("SELECT COUNT(DISTINCT partition_key) FROM %s WHERE tenant = ? AND topic = ?", mysql.MessagesTableName),
+		tenant, topic,
 	).Scan(&stats.PartitionCount)
 	if err != nil {
 		return stats, fmt.Errorf("count partitions: %w", err)
@@ -177,8 +187,8 @@ func (s *AdminStore) GetTopicStats(ctx context.Context, topic string, dlqSuffix 
 
 	// Consumer groups from offsets
 	err = s.db.QueryRowContext(ctx,
-		fmt.Sprintf("SELECT COUNT(DISTINCT consumer_group) FROM %s WHERE topic = ?", mysql.OffsetsTableName),
-		topic,
+		fmt.Sprintf("SELECT COUNT(DISTINCT consumer_group) FROM %s WHERE tenant = ? AND topic = ?", mysql.OffsetsTableName),
+		tenant, topic,
 	).Scan(&stats.ConsumerGroupCount)
 	if err != nil {
 		return stats, fmt.Errorf("count consumer groups: %w", err)
@@ -188,19 +198,19 @@ func (s *AdminStore) GetTopicStats(ctx context.Context, topic string, dlqSuffix 
 }
 
 // ListMessages returns messages for a topic, optionally filtered by partition.
-func (s *AdminStore) ListMessages(ctx context.Context, topic string, partition string, limit int) ([]MessageSummary, error) {
+func (s *AdminStore) ListMessages(ctx context.Context, tenant string, topic string, partition string, limit int) ([]MessageSummary, error) {
 	var rows *sql.Rows
 	var err error
 
 	if partition != "" {
 		rows, err = s.db.QueryContext(ctx,
-			fmt.Sprintf("SELECT `offset`, id, topic, partition_key, created_at, published_at FROM %s WHERE topic = ? AND partition_key = ? ORDER BY `offset` LIMIT ?", mysql.MessagesTableName),
-			topic, partition, limit,
+			fmt.Sprintf("SELECT tenant, `offset`, id, topic, partition_key, created_at, published_at FROM %s WHERE tenant = ? AND topic = ? AND partition_key = ? ORDER BY `offset` LIMIT ?", mysql.MessagesTableName),
+			tenant, topic, partition, limit,
 		)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
-			fmt.Sprintf("SELECT `offset`, id, topic, partition_key, created_at, published_at FROM %s WHERE topic = ? ORDER BY `offset` LIMIT ?", mysql.MessagesTableName),
-			topic, limit,
+			fmt.Sprintf("SELECT tenant, `offset`, id, topic, partition_key, created_at, published_at FROM %s WHERE tenant = ? AND topic = ? ORDER BY `offset` LIMIT ?", mysql.MessagesTableName),
+			tenant, topic, limit,
 		)
 	}
 	if err != nil {
@@ -211,7 +221,7 @@ func (s *AdminStore) ListMessages(ctx context.Context, topic string, partition s
 	var messages []MessageSummary
 	for rows.Next() {
 		var m MessageSummary
-		if err := rows.Scan(&m.Offset, &m.ID, &m.Topic, &m.PartitionKey, &m.CreatedAt, &m.PublishedAt); err != nil {
+		if err := rows.Scan(&m.Tenant, &m.Offset, &m.ID, &m.Topic, &m.PartitionKey, &m.CreatedAt, &m.PublishedAt); err != nil {
 			return nil, fmt.Errorf("scan message row: %w", err)
 		}
 		messages = append(messages, m)
@@ -220,14 +230,14 @@ func (s *AdminStore) ListMessages(ctx context.Context, topic string, partition s
 }
 
 // InspectMessage returns full message details including payload and DLQ fields.
-func (s *AdminStore) InspectMessage(ctx context.Context, topic string, messageID string) (MessageDetail, bool, error) {
+func (s *AdminStore) InspectMessage(ctx context.Context, tenant string, topic string, messageID string) (MessageDetail, bool, error) {
 	var d MessageDetail
 	var metadataJSON []byte
 
 	err := s.db.QueryRowContext(ctx,
-		fmt.Sprintf("SELECT `offset`, id, topic, partition_key, created_at, published_at, payload, metadata, failed_at, failure_count, last_error, original_topic FROM %s WHERE topic = ? AND id = ?", mysql.MessagesTableName),
-		topic, messageID,
-	).Scan(&d.Offset, &d.ID, &d.Topic, &d.PartitionKey, &d.CreatedAt, &d.PublishedAt, &d.Payload, &metadataJSON, &d.FailedAt, &d.FailureCount, &d.LastError, &d.OriginalTopic)
+		fmt.Sprintf("SELECT tenant, `offset`, id, topic, partition_key, created_at, published_at, payload, metadata, failed_at, failure_count, last_error, original_topic FROM %s WHERE tenant = ? AND topic = ? AND id = ?", mysql.MessagesTableName),
+		tenant, topic, messageID,
+	).Scan(&d.Tenant, &d.Offset, &d.ID, &d.Topic, &d.PartitionKey, &d.CreatedAt, &d.PublishedAt, &d.Payload, &metadataJSON, &d.FailedAt, &d.FailureCount, &d.LastError, &d.OriginalTopic)
 	if err == sql.ErrNoRows {
 		return d, false, nil
 	}
@@ -248,10 +258,10 @@ func (s *AdminStore) InspectMessage(ctx context.Context, topic string, messageID
 }
 
 // DeleteMessage deletes a specific message by topic and ID.
-func (s *AdminStore) DeleteMessage(ctx context.Context, topic string, messageID string) (int64, error) {
+func (s *AdminStore) DeleteMessage(ctx context.Context, tenant string, topic string, messageID string) (int64, error) {
 	result, err := s.db.ExecContext(ctx,
-		fmt.Sprintf("DELETE FROM %s WHERE topic = ? AND id = ?", mysql.MessagesTableName),
-		topic, messageID,
+		fmt.Sprintf("DELETE FROM %s WHERE tenant = ? AND topic = ? AND id = ?", mysql.MessagesTableName),
+		tenant, topic, messageID,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("delete message: %w", err)
@@ -260,10 +270,10 @@ func (s *AdminStore) DeleteMessage(ctx context.Context, topic string, messageID 
 }
 
 // PurgeTopic deletes all messages for a topic.
-func (s *AdminStore) PurgeTopic(ctx context.Context, topic string) (int64, error) {
+func (s *AdminStore) PurgeTopic(ctx context.Context, tenant string, topic string) (int64, error) {
 	result, err := s.db.ExecContext(ctx,
-		fmt.Sprintf("DELETE FROM %s WHERE topic = ?", mysql.MessagesTableName),
-		topic,
+		fmt.Sprintf("DELETE FROM %s WHERE tenant = ? AND topic = ?", mysql.MessagesTableName),
+		tenant, topic,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("purge topic: %w", err)
@@ -273,7 +283,7 @@ func (s *AdminStore) PurgeTopic(ctx context.Context, topic string) (int64, error
 
 // RequeueDLQ moves a message from the DLQ topic back to its original topic.
 // This is done transactionally: read from DLQ, insert into original topic, delete from DLQ.
-func (s *AdminStore) RequeueDLQ(ctx context.Context, topic string, messageID string, dlqSuffix string) error {
+func (s *AdminStore) RequeueDLQ(ctx context.Context, tenant string, topic string, messageID string, dlqSuffix string) error {
 	dlqTopic := topic + dlqSuffix
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -289,8 +299,8 @@ func (s *AdminStore) RequeueDLQ(ctx context.Context, topic string, messageID str
 	var createdAt, publishedAt int64
 
 	err = tx.QueryRowContext(ctx,
-		fmt.Sprintf("SELECT payload, metadata, partition_key, created_at, published_at FROM %s WHERE topic = ? AND id = ?", mysql.MessagesTableName),
-		dlqTopic, messageID,
+		fmt.Sprintf("SELECT payload, metadata, partition_key, created_at, published_at FROM %s WHERE tenant = ? AND topic = ? AND id = ?", mysql.MessagesTableName),
+		tenant, dlqTopic, messageID,
 	).Scan(&payload, &metadataJSON, &partitionKey, &createdAt, &publishedAt)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("message %q not found in DLQ topic %q", messageID, dlqTopic)
@@ -302,8 +312,8 @@ func (s *AdminStore) RequeueDLQ(ctx context.Context, topic string, messageID str
 	// Insert into original topic with reset fields
 	nowMs := time.Now().UnixMilli()
 	_, err = tx.ExecContext(ctx,
-		fmt.Sprintf("INSERT INTO %s (topic, partition_key, id, payload, metadata, created_at, published_at, failed_at, failure_count, last_error, original_topic) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, '', '')", mysql.MessagesTableName),
-		topic, partitionKey, messageID, payload, metadataJSON, createdAt, nowMs,
+		fmt.Sprintf("INSERT INTO %s (tenant, topic, partition_key, id, payload, metadata, created_at, published_at, failed_at, failure_count, last_error, original_topic) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, '', '')", mysql.MessagesTableName),
+		tenant, topic, partitionKey, messageID, payload, metadataJSON, createdAt, nowMs,
 	)
 	if err != nil {
 		return fmt.Errorf("insert requeued message: %w", err)
@@ -311,8 +321,8 @@ func (s *AdminStore) RequeueDLQ(ctx context.Context, topic string, messageID str
 
 	// Delete from DLQ
 	_, err = tx.ExecContext(ctx,
-		fmt.Sprintf("DELETE FROM %s WHERE topic = ? AND id = ?", mysql.MessagesTableName),
-		dlqTopic, messageID,
+		fmt.Sprintf("DELETE FROM %s WHERE tenant = ? AND topic = ? AND id = ?", mysql.MessagesTableName),
+		tenant, dlqTopic, messageID,
 	)
 	if err != nil {
 		return fmt.Errorf("delete dlq message: %w", err)
@@ -322,18 +332,28 @@ func (s *AdminStore) RequeueDLQ(ctx context.Context, topic string, messageID str
 }
 
 // ListOffsets returns consumer group offsets, optionally filtered by group.
-func (s *AdminStore) ListOffsets(ctx context.Context, consumerGroup string) ([]OffsetInfo, error) {
+func (s *AdminStore) ListOffsets(ctx context.Context, tenant string, consumerGroup string) ([]OffsetInfo, error) {
 	var rows *sql.Rows
 	var err error
 
-	if consumerGroup != "" {
+	if tenant != "" && consumerGroup != "" {
 		rows, err = s.db.QueryContext(ctx,
-			fmt.Sprintf("SELECT consumer_group, topic, partition_key, offset_acked, updated_at FROM %s WHERE consumer_group = ? ORDER BY consumer_group, topic, partition_key", mysql.OffsetsTableName),
+			fmt.Sprintf("SELECT tenant, consumer_group, topic, partition_key, offset_acked, updated_at FROM %s WHERE tenant = ? AND consumer_group = ? ORDER BY tenant, consumer_group, topic, partition_key", mysql.OffsetsTableName),
+			tenant, consumerGroup,
+		)
+	} else if tenant != "" {
+		rows, err = s.db.QueryContext(ctx,
+			fmt.Sprintf("SELECT tenant, consumer_group, topic, partition_key, offset_acked, updated_at FROM %s WHERE tenant = ? ORDER BY tenant, consumer_group, topic, partition_key", mysql.OffsetsTableName),
+			tenant,
+		)
+	} else if consumerGroup != "" {
+		rows, err = s.db.QueryContext(ctx,
+			fmt.Sprintf("SELECT tenant, consumer_group, topic, partition_key, offset_acked, updated_at FROM %s WHERE consumer_group = ? ORDER BY tenant, consumer_group, topic, partition_key", mysql.OffsetsTableName),
 			consumerGroup,
 		)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
-			fmt.Sprintf("SELECT consumer_group, topic, partition_key, offset_acked, updated_at FROM %s ORDER BY consumer_group, topic, partition_key", mysql.OffsetsTableName),
+			fmt.Sprintf("SELECT tenant, consumer_group, topic, partition_key, offset_acked, updated_at FROM %s ORDER BY tenant, consumer_group, topic, partition_key", mysql.OffsetsTableName),
 		)
 	}
 	if err != nil {
@@ -344,7 +364,7 @@ func (s *AdminStore) ListOffsets(ctx context.Context, consumerGroup string) ([]O
 	var offsets []OffsetInfo
 	for rows.Next() {
 		var o OffsetInfo
-		if err := rows.Scan(&o.ConsumerGroup, &o.Topic, &o.PartitionKey, &o.OffsetAcked, &o.UpdatedAt); err != nil {
+		if err := rows.Scan(&o.Tenant, &o.ConsumerGroup, &o.Topic, &o.PartitionKey, &o.OffsetAcked, &o.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan offset row: %w", err)
 		}
 		offsets = append(offsets, o)
@@ -353,11 +373,11 @@ func (s *AdminStore) ListOffsets(ctx context.Context, consumerGroup string) ([]O
 }
 
 // ResetOffset updates the acked offset for a consumer group/topic/partition.
-func (s *AdminStore) ResetOffset(ctx context.Context, consumerGroup, topic, partition string, offset int64) (int64, error) {
+func (s *AdminStore) ResetOffset(ctx context.Context, tenant, consumerGroup, topic, partition string, offset int64) (int64, error) {
 	nowMs := time.Now().UnixMilli()
 	result, err := s.db.ExecContext(ctx,
-		fmt.Sprintf("UPDATE %s SET offset_acked = ?, updated_at = ? WHERE consumer_group = ? AND topic = ? AND partition_key = ?", mysql.OffsetsTableName),
-		offset, nowMs, consumerGroup, topic, partition,
+		fmt.Sprintf("UPDATE %s SET offset_acked = ?, updated_at = ? WHERE tenant = ? AND consumer_group = ? AND topic = ? AND partition_key = ?", mysql.OffsetsTableName),
+		offset, nowMs, tenant, consumerGroup, topic, partition,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("reset offset: %w", err)
@@ -366,10 +386,14 @@ func (s *AdminStore) ResetOffset(ctx context.Context, consumerGroup, topic, part
 }
 
 // ListLeases returns all partition leases.
-func (s *AdminStore) ListLeases(ctx context.Context) ([]LeaseInfo, error) {
-	rows, err := s.db.QueryContext(ctx,
-		fmt.Sprintf("SELECT consumer_group, topic, partition_key, leased_by, leased_at, lease_renewed_at FROM %s ORDER BY consumer_group, topic, partition_key", mysql.PartitionLeasesTableName),
-	)
+func (s *AdminStore) ListLeases(ctx context.Context, tenant string) ([]LeaseInfo, error) {
+	query := fmt.Sprintf("SELECT tenant, consumer_group, topic, partition_key, leased_by, leased_at, lease_renewed_at FROM %s ORDER BY tenant, consumer_group, topic, partition_key", mysql.PartitionLeasesTableName)
+	var args []any
+	if tenant != "" {
+		query = fmt.Sprintf("SELECT tenant, consumer_group, topic, partition_key, leased_by, leased_at, lease_renewed_at FROM %s WHERE tenant = ? ORDER BY tenant, consumer_group, topic, partition_key", mysql.PartitionLeasesTableName)
+		args = append(args, tenant)
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list leases: %w", err)
 	}
@@ -378,7 +402,7 @@ func (s *AdminStore) ListLeases(ctx context.Context) ([]LeaseInfo, error) {
 	var leases []LeaseInfo
 	for rows.Next() {
 		var l LeaseInfo
-		if err := rows.Scan(&l.ConsumerGroup, &l.Topic, &l.PartitionKey, &l.LeasedBy, &l.LeasedAt, &l.LeaseRenewedAt); err != nil {
+		if err := rows.Scan(&l.Tenant, &l.ConsumerGroup, &l.Topic, &l.PartitionKey, &l.LeasedBy, &l.LeasedAt, &l.LeaseRenewedAt); err != nil {
 			return nil, fmt.Errorf("scan lease row: %w", err)
 		}
 		leases = append(leases, l)
@@ -388,6 +412,8 @@ func (s *AdminStore) ListLeases(ctx context.Context) ([]LeaseInfo, error) {
 
 // LagInfo contains consumer lag information for a single partition.
 type LagInfo struct {
+	// Tenant identifies the queue tenant.
+	Tenant string
 	// ConsumerGroup is the consumer group name
 	ConsumerGroup string
 	// Topic is the topic being consumed
@@ -404,23 +430,23 @@ type LagInfo struct {
 
 // ConsumerLag returns per-partition lag for each consumer group on a topic.
 // Lag = max message offset in partition - consumer group's acked offset.
-func (s *AdminStore) ConsumerLag(ctx context.Context, topic string) ([]LagInfo, error) {
+func (s *AdminStore) ConsumerLag(ctx context.Context, tenant string, topic string) ([]LagInfo, error) {
 	query := fmt.Sprintf(`
-		SELECT o.consumer_group, o.topic, o.partition_key, o.offset_acked,
+		SELECT o.tenant, o.consumer_group, o.topic, o.partition_key, o.offset_acked,
 		       COALESCE(m.latest_offset, 0) AS latest_offset
 		FROM %s o
 		LEFT JOIN (
-			SELECT topic, partition_key, MAX(`+"`offset`"+`) AS latest_offset
+			SELECT tenant, topic, partition_key, MAX(`+"`offset`"+`) AS latest_offset
 			FROM %s
-			WHERE topic = ?
-			GROUP BY topic, partition_key
-		) m ON o.topic = m.topic AND o.partition_key = m.partition_key
-		WHERE o.topic = ?
+			WHERE tenant = ? AND topic = ?
+			GROUP BY tenant, topic, partition_key
+		) m ON o.tenant = m.tenant AND o.topic = m.topic AND o.partition_key = m.partition_key
+		WHERE o.tenant = ? AND o.topic = ?
 		ORDER BY o.consumer_group, o.partition_key`,
 		mysql.OffsetsTableName, mysql.MessagesTableName,
 	)
 
-	rows, err := s.db.QueryContext(ctx, query, topic, topic)
+	rows, err := s.db.QueryContext(ctx, query, tenant, topic, tenant, topic)
 	if err != nil {
 		return nil, fmt.Errorf("consumer lag: %w", err)
 	}
@@ -429,7 +455,7 @@ func (s *AdminStore) ConsumerLag(ctx context.Context, topic string) ([]LagInfo, 
 	var results []LagInfo
 	for rows.Next() {
 		var l LagInfo
-		if err := rows.Scan(&l.ConsumerGroup, &l.Topic, &l.PartitionKey, &l.AckedOffset, &l.LatestOffset); err != nil {
+		if err := rows.Scan(&l.Tenant, &l.ConsumerGroup, &l.Topic, &l.PartitionKey, &l.AckedOffset, &l.LatestOffset); err != nil {
 			return nil, fmt.Errorf("scan lag row: %w", err)
 		}
 		l.Lag = l.LatestOffset - l.AckedOffset
@@ -444,12 +470,15 @@ func (s *AdminStore) ConsumerLag(ctx context.Context, topic string) ([]LagInfo, 
 // StaleLeases returns leases whose lease_renewed_at is older than the threshold.
 // thresholdMs is the staleness threshold in milliseconds — leases not renewed
 // within this duration from now are considered stale.
-func (s *AdminStore) StaleLeases(ctx context.Context, thresholdMs int64) ([]LeaseInfo, error) {
+func (s *AdminStore) StaleLeases(ctx context.Context, tenant string, thresholdMs int64) ([]LeaseInfo, error) {
 	cutoff := time.Now().UnixMilli() - thresholdMs
-	rows, err := s.db.QueryContext(ctx,
-		fmt.Sprintf("SELECT consumer_group, topic, partition_key, leased_by, leased_at, lease_renewed_at FROM %s WHERE lease_renewed_at < ? ORDER BY lease_renewed_at", mysql.PartitionLeasesTableName),
-		cutoff,
-	)
+	query := fmt.Sprintf("SELECT tenant, consumer_group, topic, partition_key, leased_by, leased_at, lease_renewed_at FROM %s WHERE lease_renewed_at < ? ORDER BY lease_renewed_at", mysql.PartitionLeasesTableName)
+	args := []any{cutoff}
+	if tenant != "" {
+		query = fmt.Sprintf("SELECT tenant, consumer_group, topic, partition_key, leased_by, leased_at, lease_renewed_at FROM %s WHERE tenant = ? AND lease_renewed_at < ? ORDER BY lease_renewed_at", mysql.PartitionLeasesTableName)
+		args = []any{tenant, cutoff}
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("stale leases: %w", err)
 	}
@@ -458,7 +487,7 @@ func (s *AdminStore) StaleLeases(ctx context.Context, thresholdMs int64) ([]Leas
 	var leases []LeaseInfo
 	for rows.Next() {
 		var l LeaseInfo
-		if err := rows.Scan(&l.ConsumerGroup, &l.Topic, &l.PartitionKey, &l.LeasedBy, &l.LeasedAt, &l.LeaseRenewedAt); err != nil {
+		if err := rows.Scan(&l.Tenant, &l.ConsumerGroup, &l.Topic, &l.PartitionKey, &l.LeasedBy, &l.LeasedAt, &l.LeaseRenewedAt); err != nil {
 			return nil, fmt.Errorf("scan stale lease row: %w", err)
 		}
 		leases = append(leases, l)
@@ -467,10 +496,10 @@ func (s *AdminStore) StaleLeases(ctx context.Context, thresholdMs int64) ([]Leas
 }
 
 // ReleaseLease force-releases a partition lease.
-func (s *AdminStore) ReleaseLease(ctx context.Context, consumerGroup, topic, partition string) (int64, error) {
+func (s *AdminStore) ReleaseLease(ctx context.Context, tenant, consumerGroup, topic, partition string) (int64, error) {
 	result, err := s.db.ExecContext(ctx,
-		fmt.Sprintf("DELETE FROM %s WHERE consumer_group = ? AND topic = ? AND partition_key = ?", mysql.PartitionLeasesTableName),
-		consumerGroup, topic, partition,
+		fmt.Sprintf("DELETE FROM %s WHERE tenant = ? AND consumer_group = ? AND topic = ? AND partition_key = ?", mysql.PartitionLeasesTableName),
+		tenant, consumerGroup, topic, partition,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("release lease: %w", err)

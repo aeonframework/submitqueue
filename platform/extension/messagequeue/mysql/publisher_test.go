@@ -54,24 +54,24 @@ func TestPublisher_Publish(t *testing.T) {
 			name:  "publish single message",
 			topic: "test_topic",
 			messages: []entityqueue.Message{
-				{ID: "msg1", Payload: []byte("payload1"), PartitionKey: "part1", PublishedAt: fixedTimestamp},
+				{Tenant: testTenant, ID: "msg1", Payload: []byte("payload1"), PartitionKey: "part1", PublishedAt: fixedTimestamp},
 			},
 			wantErr: false,
 			setupMock: func(m *MockmessageStore) {
-				m.EXPECT().Insert(gomock.Any(), "test_topic", gomock.Any()).Return(nil).Times(1)
+				m.EXPECT().Insert(gomock.Any(), testTenant, "test_topic", gomock.Any()).Return(nil).Times(1)
 			},
 		},
 		{
 			name:  "publish multiple messages",
 			topic: "multi_topic",
 			messages: []entityqueue.Message{
-				{ID: "msg1", Payload: []byte("p1"), PartitionKey: "part1", PublishedAt: fixedTimestamp},
-				{ID: "msg2", Payload: []byte("p2"), PartitionKey: "part1", PublishedAt: fixedTimestamp},
-				{ID: "msg3", Payload: []byte("p3"), PartitionKey: "part2", PublishedAt: fixedTimestamp},
+				{Tenant: testTenant, ID: "msg1", Payload: []byte("p1"), PartitionKey: "part1", PublishedAt: fixedTimestamp},
+				{Tenant: testTenant, ID: "msg2", Payload: []byte("p2"), PartitionKey: "part1", PublishedAt: fixedTimestamp},
+				{Tenant: testTenant, ID: "msg3", Payload: []byte("p3"), PartitionKey: "part2", PublishedAt: fixedTimestamp},
 			},
 			wantErr: false,
 			setupMock: func(m *MockmessageStore) {
-				m.EXPECT().Insert(gomock.Any(), "multi_topic", gomock.Any()).Return(nil).Times(3)
+				m.EXPECT().Insert(gomock.Any(), testTenant, "multi_topic", gomock.Any()).Return(nil).Times(3)
 			},
 		},
 		{
@@ -88,6 +88,7 @@ func TestPublisher_Publish(t *testing.T) {
 			topic: "metadata_topic",
 			messages: []entityqueue.Message{
 				{
+					Tenant:       testTenant,
 					ID:           "msg_meta",
 					Payload:      []byte("payload"),
 					PartitionKey: "part1",
@@ -97,18 +98,18 @@ func TestPublisher_Publish(t *testing.T) {
 			},
 			wantErr: false,
 			setupMock: func(m *MockmessageStore) {
-				m.EXPECT().Insert(gomock.Any(), "metadata_topic", gomock.Any()).Return(nil).Times(1)
+				m.EXPECT().Insert(gomock.Any(), testTenant, "metadata_topic", gomock.Any()).Return(nil).Times(1)
 			},
 		},
 		{
 			name:  "publish with valid topic name - hyphens",
 			topic: "topic-with-dash",
 			messages: []entityqueue.Message{
-				{ID: "msg1", Payload: []byte("p"), PartitionKey: "part1", PublishedAt: fixedTimestamp},
+				{Tenant: testTenant, ID: "msg1", Payload: []byte("p"), PartitionKey: "part1", PublishedAt: fixedTimestamp},
 			},
 			wantErr: false,
 			setupMock: func(m *MockmessageStore) {
-				m.EXPECT().Insert(gomock.Any(), "topic-with-dash", gomock.Any()).Return(nil).Times(1)
+				m.EXPECT().Insert(gomock.Any(), testTenant, "topic-with-dash", gomock.Any()).Return(nil).Times(1)
 			},
 		},
 	}
@@ -181,7 +182,7 @@ func TestPublisher_PublishMetrics(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := NewMockmessageStore(ctrl)
-	mockStore.EXPECT().Insert(gomock.Any(), "metrics_test", gomock.Any()).Return(nil).Times(2)
+	mockStore.EXPECT().Insert(gomock.Any(), testTenant, "metrics_test", gomock.Any()).Return(nil).Times(2)
 
 	pub := setupPublisherTest(t, mockStore)
 
@@ -190,8 +191,8 @@ func TestPublisher_PublishMetrics(t *testing.T) {
 
 	// Publish some messages
 	messages := []entityqueue.Message{
-		{ID: "msg1", Payload: []byte("p1"), PartitionKey: "part1", PublishedAt: fixedTimestamp},
-		{ID: "msg2", Payload: []byte("p2"), PartitionKey: "part1", PublishedAt: fixedTimestamp},
+		{Tenant: testTenant, ID: "msg1", Payload: []byte("p1"), PartitionKey: "part1", PublishedAt: fixedTimestamp},
+		{Tenant: testTenant, ID: "msg2", Payload: []byte("p2"), PartitionKey: "part1", PublishedAt: fixedTimestamp},
 	}
 
 	for _, msg := range messages {
@@ -211,7 +212,7 @@ func TestPublisher_ConcurrentPublish(t *testing.T) {
 	const messagesPerGoroutine = 5
 
 	mockStore := NewMockmessageStore(ctrl)
-	mockStore.EXPECT().Insert(gomock.Any(), "concurrent_topic", gomock.Any()).Return(nil).Times(numGoroutines * messagesPerGoroutine)
+	mockStore.EXPECT().Insert(gomock.Any(), testTenant, "concurrent_topic", gomock.Any()).Return(nil).Times(numGoroutines * messagesPerGoroutine)
 
 	pub := setupPublisherTest(t, mockStore)
 
@@ -224,6 +225,7 @@ func TestPublisher_ConcurrentPublish(t *testing.T) {
 		go func(id int) {
 			for j := 0; j < messagesPerGoroutine; j++ {
 				msg := entityqueue.Message{
+					Tenant:       testTenant,
 					ID:           fmt.Sprintf("msg_%d_%d", id, j),
 					Payload:      []byte(fmt.Sprintf("payload_%d_%d", id, j)),
 					PartitionKey: fmt.Sprintf("part_%d", id),
@@ -246,7 +248,7 @@ func TestPublisher_PublishContextCancellation(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockStore := NewMockmessageStore(ctrl)
-	mockStore.EXPECT().Insert(gomock.Any(), "test_topic", gomock.Any()).Return(context.Canceled).Times(1)
+	mockStore.EXPECT().Insert(gomock.Any(), testTenant, "test_topic", gomock.Any()).Return(context.Canceled).Times(1)
 
 	pub := setupPublisherTest(t, mockStore)
 
@@ -255,6 +257,7 @@ func TestPublisher_PublishContextCancellation(t *testing.T) {
 	cancel()
 
 	msg := entityqueue.NewMessage("msg1", []byte("payload"), "part1", nil)
+	msg.Tenant = testTenant
 
 	// Should fail with context cancelled error
 	err := pub.Publish(ctx, "test_topic", msg)

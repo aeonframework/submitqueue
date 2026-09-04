@@ -78,6 +78,7 @@ func TestMessage_PropagatesQueueNameFromContext(t *testing.T) {
 	ctx := entityqueue.WithQueueName(context.Background(), "monorepo/main")
 	require.NoError(t, Message(ctx, registry, testKey, "msg-1", []byte("payload"), "partition-1"))
 	assert.Equal(t, "monorepo/main", published.Metadata[entityqueue.MetadataKeyQueueName])
+	assert.Equal(t, "monorepo/main", published.Tenant)
 }
 
 func TestMessageWithMetadata_MergesContextWithoutMutatingInput(t *testing.T) {
@@ -99,6 +100,7 @@ func TestMessageWithMetadata_MergesContextWithoutMutatingInput(t *testing.T) {
 		"failure_reason":                 "build failed",
 		entityqueue.MetadataKeyQueueName: "monorepo/main",
 	}, published.Metadata)
+	assert.Equal(t, "monorepo/main", published.Tenant)
 	assert.Equal(t, map[string]string{"failure_reason": "build failed"}, metadata)
 }
 
@@ -118,6 +120,7 @@ func TestMessageWithMetadata_ExplicitQueueNameWins(t *testing.T) {
 	metadata := map[string]string{entityqueue.MetadataKeyQueueName: "outbound"}
 	require.NoError(t, MessageWithMetadata(ctx, registry, testKey, "msg-1", []byte("payload"), "partition-1", metadata))
 	assert.Equal(t, "outbound", published.Metadata[entityqueue.MetadataKeyQueueName])
+	assert.Equal(t, "outbound", published.Tenant)
 }
 
 func TestMessage_UnregisteredKey(t *testing.T) {

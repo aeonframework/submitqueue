@@ -48,6 +48,10 @@ type Message struct {
 	// Optional - if empty, backend may use round-robin distribution.
 	PartitionKey string
 
+	// Tenant is the shard isolation identity persisted by the backend.
+	// Domains map their queue name onto this field at publish time.
+	Tenant string
+
 	// PublishedAt is when the message was published (Unix milliseconds).
 	PublishedAt int64
 }
@@ -79,6 +83,7 @@ func (m Message) Copy() Message {
 		Payload:      payloadCopy,
 		Metadata:     maps.Clone(m.Metadata),
 		PartitionKey: m.PartitionKey,
+		Tenant:       m.Tenant,
 		PublishedAt:  m.PublishedAt,
 	}
 }

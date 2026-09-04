@@ -135,11 +135,17 @@ func run() error {
 	}
 	defer queueDB.Close()
 
+	mergeCfg, err := loadMergeConfigFromEnv(logger)
+	if err != nil {
+		return fmt.Errorf("failed to load merge config: %w", err)
+	}
+
 	mysqlQueue, err := queueMySQL.NewQueue(queueMySQL.Params{
 		DB:           queueDB,
 		Logger:       logger,
 		LogLevel:     os.Getenv("QUEUE_LOG_LEVEL"),
 		MetricsScope: scope.SubScope("queue"),
+		Tenants:      tenantNamesFromMergeConfig(mergeCfg),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create queue: %w", err)
