@@ -29,30 +29,20 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-func TestDLQMergeSignalController_InterfaceAndAccessors(t *testing.T) {
+func TestDLQLandConflictSignalController_InterfaceAndAccessors(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := storagemock.NewMockStorage(ctrl)
 	store.EXPECT().GetQueueBatchStateStore().Return(newQueueBatchStateStore(ctrl)).AnyTimes()
 
-	c := NewDLQMergeSignalController(zaptest.NewLogger(t).Sugar(), testScope(), staticStorageFactory{store: store}, consumer.TopicRegistry{}, TopicKey(runwaymq.TopicKeyMergeSignal), "orchestrator-mergesignal-dlq")
+	c := NewDLQLandConflictSignalController(zaptest.NewLogger(t).Sugar(), testScope(), staticStorageFactory{store: store}, consumer.TopicRegistry{}, TopicKey(runwaymq.TopicKeyMergeConflictCheckSignal), "orchestrator-landconflictsignal-dlq")
 
-	assert.Equal(t, "merge-signal_dlq", c.Name())
-	assert.Equal(t, consumer.TopicKey("merge-signal_dlq"), c.TopicKey())
-	assert.Equal(t, "orchestrator-mergesignal-dlq", c.ConsumerGroup())
+	assert.Equal(t, "merge-conflict-check-signal_dlq", c.Name())
+	assert.Equal(t, consumer.TopicKey("merge-conflict-check-signal_dlq"), c.TopicKey())
+	assert.Equal(t, "orchestrator-landconflictsignal-dlq", c.ConsumerGroup())
 }
 
-// The payload id is the batch id echoed back, so reconciliation fails the batch
-// and fans out to its member requests via failBatch.
-func TestDLQMergeSignalController_Process_ReconcilesBatch(t *testing.T) {
+func TestDLQLandConflictSignalController_Process_ReconcilesRequest(t *testing.T) {
 	ctrl := gomock.NewController(t)
-
-	batchStore := storagemock.NewMockBatchStore(ctrl)
-	batch := entity.Batch{
-		ID: "q/batch/1", Queue: "q", Contains: []string{"q/1"},
-		State: entity.BatchStateMerging, Version: 2,
-	}
-	batchStore.EXPECT().Get(gomock.Any(), "q/batch/1").Return(batch, nil)
-	batchStore.EXPECT().Update(gomock.Any(), batchWithState(batch, entity.BatchStateFailed), int32(2), int32(3)).Return(nil)
 
 	requestStore := storagemock.NewMockRequestStore(ctrl)
 	request := entity.Request{
@@ -67,24 +57,23 @@ func TestDLQMergeSignalController_Process_ReconcilesBatch(t *testing.T) {
 
 	store := storagemock.NewMockStorage(ctrl)
 	store.EXPECT().GetQueueBatchStateStore().Return(newQueueBatchStateStore(ctrl)).AnyTimes()
-	store.EXPECT().GetBatchStore().Return(batchStore).AnyTimes()
 	store.EXPECT().GetRequestStore().Return(requestStore).AnyTimes()
 
-	c := NewDLQMergeSignalController(zaptest.NewLogger(t).Sugar(), testScope(), staticStorageFactory{store: store}, registry, TopicKey(runwaymq.TopicKeyMergeSignal), "orchestrator-mergesignal-dlq")
+	c := NewDLQLandConflictSignalController(zaptest.NewLogger(t).Sugar(), testScope(), staticStorageFactory{store: store}, registry, TopicKey(runwaymq.TopicKeyMergeConflictCheckSignal), "orchestrator-landconflictsignal-dlq")
 
-	payload, err := runwaymq.Marshal(&runwaymq.MergeResult{Id: "q/batch/1", Outcome: runwaypb.Outcome_FAILED, Reason: "boom"})
+	payload, err := runwaymq.Marshal(&runwaymq.MergeResult{Id: "q/1", Outcome: runwaypb.Outcome_FAILED, Reason: "boom"})
 	require.NoError(t, err)
 
 	delivery := newMockDelivery(ctrl, payload)
 	require.NoError(t, c.Process(context.Background(), delivery))
 }
 
-func TestDLQMergeSignalController_Process_MalformedPayloadFails(t *testing.T) {
+func TestDLQLandConflictSignalController_Process_MalformedPayloadFails(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	store := storagemock.NewMockStorage(ctrl)
 	store.EXPECT().GetQueueBatchStateStore().Return(newQueueBatchStateStore(ctrl)).AnyTimes()
-	c := NewDLQMergeSignalController(zaptest.NewLogger(t).Sugar(), testScope(), staticStorageFactory{store: store}, consumer.TopicRegistry{}, TopicKey(runwaymq.TopicKeyMergeSignal), "orchestrator-mergesignal-dlq")
+	c := NewDLQLandConflictSignalController(zaptest.NewLogger(t).Sugar(), testScope(), staticStorageFactory{store: store}, consumer.TopicRegistry{}, TopicKey(runwaymq.TopicKeyMergeConflictCheckSignal), "orchestrator-landconflictsignal-dlq")
 
 	delivery := newMockDelivery(ctrl, []byte("garbage"))
 	require.Error(t, c.Process(context.Background(), delivery))

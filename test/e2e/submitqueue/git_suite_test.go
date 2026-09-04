@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Hermetic end-to-end coverage of a *real* merge.
+// Hermetic end-to-end coverage of a *real* land.
 //
 // The tier-1 suite (suite_test.go) runs Runway on the noop merger, so "landed"
 // there proves the pipeline's choreography and nothing about git. This suite
@@ -21,10 +21,10 @@
 // many ref updates.
 //
 // It needs no credential, no network, and no account anywhere, because none of
-// that is what the merge machinery depends on — which is what lets these
+// that is what the land machinery depends on — which is what lets these
 // assertions gate a pull request. What it deliberately cannot cover is the half
 // that is specific to a change provider: reading change metadata, that
-// provider's CI, and a real change being marked merged. Those need a repository
+// provider's CI, and a real change being marked landed. Those need a repository
 // and a credential, so they are exercised by hand — see doc/howto/QUICKSTART.md.
 package e2e_test
 
@@ -59,7 +59,7 @@ const gitQueue = "e2e-git-queue"
 // configured remote, so this identifies the change rather than routing to it.
 const sandboxRemote = "git.example.com"
 
-type GitMergeSuite struct {
+type GitLandSuite struct {
 	suite.Suite
 	ctx           context.Context
 	log           *testutil.TestLogger
@@ -77,11 +77,11 @@ type GitMergeSuite struct {
 	work string
 }
 
-func TestGitMergeE2E(t *testing.T) {
-	suite.Run(t, new(GitMergeSuite))
+func TestGitLandE2E(t *testing.T) {
+	suite.Run(t, new(GitLandSuite))
 }
 
-func (s *GitMergeSuite) SetupSuite() {
+func (s *GitLandSuite) SetupSuite() {
 	t := s.T()
 	s.ctx = context.Background()
 	s.log = testutil.NewTestLogger(t)
@@ -142,10 +142,10 @@ func (s *GitMergeSuite) SetupSuite() {
 	require.NoError(t, err)
 	s.gatewayClient = gatewaypb.NewSubmitQueueGatewayClient(conn)
 
-	s.log.Logf("git merge E2E suite ready (bare repo at %s)", s.bare)
+	s.log.Logf("git land E2E suite ready (bare repo at %s)", s.bare)
 }
 
-func (s *GitMergeSuite) TearDownSuite() {
+func (s *GitLandSuite) TearDownSuite() {
 	if s.db != nil {
 		s.db.Close()
 	}
@@ -156,7 +156,7 @@ func (s *GitMergeSuite) TearDownSuite() {
 
 // --- assertions against the repository itself ---
 
-func (s *GitMergeSuite) TestLand_SingleChange_ReachesTheTargetBranch() {
+func (s *GitLandSuite) TestLand_SingleChange_ReachesTheTargetBranch() {
 	before := s.mainSHA()
 	head := s.pushChange("feature/single", map[string]string{"single.txt": "single\n"}, "add single")
 
@@ -171,8 +171,8 @@ func (s *GitMergeSuite) TestLand_SingleChange_ReachesTheTargetBranch() {
 	s.Equal("single\n", s.fileOnMain("single.txt"))
 }
 
-func (s *GitMergeSuite) TestLand_Stack_LandsInOrderInOneRefUpdate() {
-	// The property that distinguishes a submit queue from merging changes one
+func (s *GitLandSuite) TestLand_Stack_LandsInOrderInOneRefUpdate() {
+	// The property that distinguishes a submit queue from landing changes one
 	// at a time: a stack reaches the target as a single atomic ref update, so
 	// no reader ever observes it half-landed.
 	before := s.mainSHA()
@@ -195,8 +195,8 @@ func (s *GitMergeSuite) TestLand_Stack_LandsInOrderInOneRefUpdate() {
 		"the whole stack must reach the target in exactly one ref update")
 }
 
-func (s *GitMergeSuite) TestLand_MovesEachChangeHeadBranchToItsLandedCommit() {
-	// What makes a provider mark a rebased change merged: its head branch is moved
+func (s *GitLandSuite) TestLand_MovesEachChangeHeadBranchToItsLandedCommit() {
+	// What makes a provider mark a rebased change landed: its head branch is moved
 	// to the commit the change became, so the head is reachable from the target.
 	before := s.mainSHA()
 	first := s.pushChange("feature/head-1", map[string]string{"h1.txt": "h1\n"}, "add h1")
@@ -218,7 +218,7 @@ func (s *GitMergeSuite) TestLand_MovesEachChangeHeadBranchToItsLandedCommit() {
 	s.True(s.isAncestorOfMain(s.branchSHA("feature/head-2")))
 }
 
-func (s *GitMergeSuite) TestLand_Conflict_FailsAndLeavesTheTargetUntouched() {
+func (s *GitLandSuite) TestLand_Conflict_FailsAndLeavesTheTargetUntouched() {
 	// Two changes editing the same line from the same base: the first lands,
 	// the second cannot be replayed onto it.
 	base := s.mainSHA()
@@ -236,7 +236,7 @@ func (s *GitMergeSuite) TestLand_Conflict_FailsAndLeavesTheTargetUntouched() {
 	s.Equal(loser, s.branchSHA("feature/conflict-b"))
 }
 
-func (s *GitMergeSuite) TestLand_ResubmittedAfterLanding_IsRejectedAsStale() {
+func (s *GitLandSuite) TestLand_ResubmittedAfterLanding_IsRejectedAsStale() {
 	// Landing a change moves its head branch to the commit it became, so the
 	// URI that was submitted no longer describes where that branch points. The
 	// staleness check catches exactly that, which is what stops a change from
@@ -259,7 +259,7 @@ func (s *GitMergeSuite) TestLand_ResubmittedAfterLanding_IsRejectedAsStale() {
 
 // land submits a request and returns its sqid. Repeated URIs are the stack, in
 // the order they must be applied.
-func (s *GitMergeSuite) land(queue string, uris ...string) string {
+func (s *GitLandSuite) land(queue string, uris ...string) string {
 	resp, err := s.gatewayClient.Land(s.ctx, &gatewaypb.LandRequest{
 		Queue:    queue,
 		Change:   &changepb.Change{Uris: uris},
@@ -272,7 +272,7 @@ func (s *GitMergeSuite) land(queue string, uris ...string) string {
 
 // requireStatus waits for the request to reach a terminal status and asserts
 // which one. Bazel's test timeout is the only deadline.
-func (s *GitMergeSuite) requireStatus(sqid string, want entity.RequestStatus) {
+func (s *GitLandSuite) requireStatus(sqid string, want entity.RequestStatus) {
 	var got entity.RequestStatus
 	pollUntil(persistPollInterval, func() bool {
 		resp, err := s.gatewayClient.GetRequestSummaryByID(s.ctx, &gatewaypb.GetRequestSummaryByIDRequest{Sqid: sqid, Queue: gitQueue})
@@ -288,7 +288,7 @@ func (s *GitMergeSuite) requireStatus(sqid string, want entity.RequestStatus) {
 
 // uri builds the git:// change URI for a branch pinned at a commit. The ref is
 // percent-encoded so a branch name containing slashes stays one path segment.
-func (s *GitMergeSuite) uri(branch, sha string) string {
+func (s *GitLandSuite) uri(branch, sha string) string {
 	ref := "refs/heads/" + branch
 	return fmt.Sprintf("git://%s/sandbox/%s/%s", sandboxRemote, url.PathEscape(ref), sha)
 }
@@ -297,7 +297,7 @@ func (s *GitMergeSuite) uri(branch, sha string) string {
 
 // stageProviderConfig copies the committed example configuration into a directory
 // the containers can bind-mount, and returns its path.
-func (s *GitMergeSuite) stageProviderConfig() string {
+func (s *GitLandSuite) stageProviderConfig() string {
 	t := s.T()
 	staged := t.TempDir()
 	for _, name := range []string{"merge.yaml", "profiles.yaml"} {
@@ -310,7 +310,7 @@ func (s *GitMergeSuite) stageProviderConfig() string {
 
 // seedRepository creates the bare repository Runway merges into, plus a working
 // clone the test authors changes in.
-func (s *GitMergeSuite) seedRepository() {
+func (s *GitLandSuite) seedRepository() {
 	t := s.T()
 	s.runGit(filepath.Dir(s.bare), "init", "--bare", "-b", "main", s.bare)
 	// Bare repositories do not log ref updates by default, and the reflog is
@@ -326,7 +326,7 @@ func (s *GitMergeSuite) seedRepository() {
 	s.runGit(s.work, "push", "origin", "main")
 }
 
-func (s *GitMergeSuite) configureWorkClone() {
+func (s *GitLandSuite) configureWorkClone() {
 	for _, kv := range [][2]string{
 		{"user.name", "E2E Author"},
 		{"user.email", "author@example.com"},
@@ -342,13 +342,13 @@ func (s *GitMergeSuite) configureWorkClone() {
 
 // pushChange authors a change branched off the current target tip and pushes
 // it, returning its head SHA — all a change URI ever carries.
-func (s *GitMergeSuite) pushChange(branch string, files map[string]string, message string) string {
+func (s *GitLandSuite) pushChange(branch string, files map[string]string, message string) string {
 	return s.pushChangeOnto("origin/main", branch, files, message)
 }
 
 // pushChangeOnto is pushChange based at an explicit start point, for building a
 // change that stacks on another rather than on the target.
-func (s *GitMergeSuite) pushChangeOnto(base, branch string, files map[string]string, message string) string {
+func (s *GitLandSuite) pushChangeOnto(base, branch string, files map[string]string, message string) string {
 	s.runGit(s.work, "fetch", "origin")
 	s.runGit(s.work, "checkout", "-B", branch, base)
 	for path, contents := range files {
@@ -361,18 +361,18 @@ func (s *GitMergeSuite) pushChangeOnto(base, branch string, files map[string]str
 }
 
 // mainSHA is the current tip of the target branch on the bare repository.
-func (s *GitMergeSuite) mainSHA() string {
+func (s *GitLandSuite) mainSHA() string {
 	return s.runGit(s.bare, "rev-parse", "refs/heads/main")
 }
 
 // branchSHA is the current tip of a change's head branch.
-func (s *GitMergeSuite) branchSHA(branch string) string {
+func (s *GitLandSuite) branchSHA(branch string) string {
 	return s.runGit(s.bare, "rev-parse", "refs/heads/"+branch)
 }
 
 // shasSince lists the commits added to the target since a known point, oldest
 // first.
-func (s *GitMergeSuite) shasSince(since string) []string {
+func (s *GitLandSuite) shasSince(since string) []string {
 	out := s.runGit(s.bare, "rev-list", "--reverse", since+"..refs/heads/main")
 	return strings.Fields(out)
 }
@@ -380,7 +380,7 @@ func (s *GitMergeSuite) shasSince(since string) []string {
 // subjectsSince lists the messages of the commits added to the target since a
 // known point, oldest first — the readable form of what landed and in what
 // order.
-func (s *GitMergeSuite) subjectsSince(since string) []string {
+func (s *GitLandSuite) subjectsSince(since string) []string {
 	out := s.runGit(s.bare, "log", "--reverse", "--format=%s", since+"..refs/heads/main")
 	var subjects []string
 	for _, line := range strings.Split(out, "\n") {
@@ -392,13 +392,13 @@ func (s *GitMergeSuite) subjectsSince(since string) []string {
 }
 
 // fileOnMain reads a file's contents at the target tip.
-func (s *GitMergeSuite) fileOnMain(path string) string {
+func (s *GitLandSuite) fileOnMain(path string) string {
 	return s.runGit(s.bare, "show", "refs/heads/main:"+path) + "\n"
 }
 
 // isAncestorOfMain reports whether a commit is reachable from the target — the
-// property a provider reads to decide a change has merged.
-func (s *GitMergeSuite) isAncestorOfMain(sha string) bool {
+// property a provider reads to decide a change has landed.
+func (s *GitLandSuite) isAncestorOfMain(sha string) bool {
 	cmd := exec.Command(s.git, "merge-base", "--is-ancestor", sha, "refs/heads/main")
 	cmd.Dir = s.bare
 	return cmd.Run() == nil
@@ -407,7 +407,7 @@ func (s *GitMergeSuite) isAncestorOfMain(sha string) bool {
 // mainRefUpdateCount is how many times the target branch has been updated,
 // read from the bare repository's reflog. One land must cost exactly one,
 // however many changes it carried.
-func (s *GitMergeSuite) mainRefUpdateCount() int {
+func (s *GitLandSuite) mainRefUpdateCount() int {
 	out := s.runGit(s.bare, "reflog", "show", "--format=%H", "refs/heads/main")
 	count := 0
 	for _, line := range strings.Split(out, "\n") {
@@ -420,7 +420,7 @@ func (s *GitMergeSuite) mainRefUpdateCount() int {
 
 // runGit runs the pinned git and returns its trimmed stdout, failing the test
 // on a non-zero exit.
-func (s *GitMergeSuite) runGit(dir string, args ...string) string {
+func (s *GitLandSuite) runGit(dir string, args ...string) string {
 	s.T().Helper()
 	cmd := exec.Command(s.git, args...)
 	cmd.Dir = dir
