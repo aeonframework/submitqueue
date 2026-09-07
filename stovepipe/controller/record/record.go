@@ -489,7 +489,7 @@ func (c *Controller) promote(ctx context.Context, request entity.Request) error 
 // Partitioning by request id matches the record topic's own, carrying
 // per-request ordering across the seam.
 func (c *Controller) publishHookEvent(ctx context.Context, request entity.Request, event *basehook.HookEvent) error {
-	if err := platformhook.Publish(ctx, c.registry, event, request.ID); err != nil {
+	if err := platformhook.Publish(ctx, c.registry, request.Queue, event, request.ID); err != nil {
 		metrics.NamedCounter(c.metricsScope, _opName, "hook_errors", 1, metrics.TagsFromContext(ctx)...)
 		return fmt.Errorf("failed to announce %s for request %s: %w", event.GetType(), request.ID, err)
 	}

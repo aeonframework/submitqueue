@@ -175,6 +175,7 @@ func expectSignal(t *testing.T, deps *testDeps, buildID string) {
 			got, err := entity.BuildIDFromBytes(msg.Payload)
 			require.NoError(t, err)
 			assert.Equal(t, buildID, got.ID)
+			assert.Equal(t, "test-queue", msg.Tenant)
 			assert.Equal(t, buildID, msg.PartitionKey,
 				"polls partition per build so one slow build cannot block a head's others")
 			return nil

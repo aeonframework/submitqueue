@@ -56,7 +56,7 @@ func TestDLQMergeSignalController_Process_ReconcilesBatch(t *testing.T) {
 
 	requestStore := storagemock.NewMockRequestStore(ctrl)
 	request := entity.Request{
-		ID: "q/1", Version: 1, State: entity.RequestStateProcessing,
+		ID: "q/1", Queue: "q", Version: 1, State: entity.RequestStateProcessing,
 	}
 	requestStore.EXPECT().Get(gomock.Any(), "q/1").Return(request, nil)
 	requestStore.EXPECT().Update(gomock.Any(), requestWithState(request, entity.RequestStateError), int32(1), int32(2)).Return(nil)

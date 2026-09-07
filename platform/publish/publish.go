@@ -35,11 +35,11 @@ import (
 	"github.com/uber/submitqueue/platform/consumer"
 )
 
-// Message publishes payload to the topic registered for key. Allowlisted
-// delivery context is propagated as message metadata.
+// Message publishes payload to the topic registered for key. Tenant selects
+// the shard and is propagated as the delivery's queue-name metadata.
 //
 // msgID selects the dedup behavior, so the caller must choose it deliberately.
-// The queue deduplicates on (topic, partition key, message ID) against every
+// The queue deduplicates on (tenant, topic, partition key, message ID) against every
 // row it has not garbage-collected yet, consumed ones included — a window with
 // no upper bound on a busy partition. A publish that collides is reported as a
 // success and writes nothing, and nothing retries it.
@@ -48,16 +48,18 @@ import (
 // this particular message exists for. A retry of the same cause then dedups,
 // which is what makes redelivery safe, while a new cause about the same entity
 // can never be swallowed by an older row.
-func Message(ctx context.Context, registry consumer.TopicRegistry, key consumer.TopicKey, msgID string, payload []byte, partitionKey string) error {
-	return MessageWithMetadata(ctx, registry, key, msgID, payload, partitionKey, nil)
+func Message(ctx context.Context, registry consumer.TopicRegistry, key consumer.TopicKey, tenant, msgID string, payload []byte, partitionKey string) error {
+	return MessageWithMetadata(ctx, registry, key, tenant, msgID, payload, partitionKey, nil)
 }
 
 // MessageWithMetadata is Message with side-band message metadata (headers/attributes)
 // attached to the delivery. Use it to carry diagnostic context that is not part of
 // the payload — the backend persists and redelivers metadata alongside the message.
-// Allowlisted delivery context, currently only the queue name, is propagated unless
-// the caller supplies that metadata key explicitly.
-func MessageWithMetadata(ctx context.Context, registry consumer.TopicRegistry, key consumer.TopicKey, msgID string, payload []byte, partitionKey string, metadata map[string]string) error {
+// Tenant is also propagated as the delivery's queue-name context.
+func MessageWithMetadata(ctx context.Context, registry consumer.TopicRegistry, key consumer.TopicKey, tenant, msgID string, payload []byte, partitionKey string, metadata map[string]string) error {
+	if tenant == "" {
+		return fmt.Errorf("tenant is required")
+	}
 	q, ok := registry.Queue(key)
 	if !ok {
 		return fmt.Errorf("no queue registered for topic key %s", key)
@@ -67,29 +69,18 @@ func MessageWithMetadata(ctx context.Context, registry consumer.TopicRegistry, k
 		return fmt.Errorf("no topic name registered for topic key %s", key)
 	}
 
-	msg := entityqueue.NewMessage(msgID, payload, partitionKey, metadataFromContext(ctx, metadata))
-	if tenant := msg.Metadata[entityqueue.MetadataKeyQueueName]; tenant != "" {
-		msg.Tenant = tenant
-	} else if queueName, ok := entityqueue.QueueName(ctx); ok {
-		msg.Tenant = queueName
+	if queueName, exists := metadata[entityqueue.MetadataKeyQueueName]; exists && queueName != tenant {
+		return fmt.Errorf("queue-name metadata %q does not match tenant %q", queueName, tenant)
 	}
-	return q.Publisher().Publish(ctx, topicName, msg)
-}
-
-func metadataFromContext(ctx context.Context, metadata map[string]string) map[string]string {
 	metadata = maps.Clone(metadata)
-	if _, exists := metadata[entityqueue.MetadataKeyQueueName]; exists {
-		return metadata
-	}
-	queueName, ok := entityqueue.QueueName(ctx)
-	if !ok || queueName == "" {
-		return metadata
-	}
 	if metadata == nil {
 		metadata = make(map[string]string)
 	}
-	metadata[entityqueue.MetadataKeyQueueName] = queueName
-	return metadata
+	metadata[entityqueue.MetadataKeyQueueName] = tenant
+
+	msg := entityqueue.NewMessage(msgID, payload, partitionKey, metadata)
+	msg.Tenant = tenant
+	return q.Publisher().Publish(ctx, topicName, msg)
 }
 
 // IntentID names the occasion to publish rather than the entity published

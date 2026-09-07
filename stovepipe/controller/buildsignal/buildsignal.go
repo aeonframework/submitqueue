@@ -358,7 +358,7 @@ func (c *Controller) publishRecord(ctx context.Context, requestID, queue string)
 	if err != nil {
 		return fmt.Errorf("failed to serialize record: %w", err)
 	}
-	return publish.Message(ctx, c.registry, stovepipemq.TopicKeyRecord, publish.IntentID(requestID), payload, requestID)
+	return publish.Message(ctx, c.registry, stovepipemq.TopicKeyRecord, queue, publish.IntentID(requestID), payload, requestID)
 }
 
 // Name returns the controller name for logging and metrics.

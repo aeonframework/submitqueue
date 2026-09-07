@@ -42,6 +42,7 @@ import (
 	hooknoop "github.com/uber/submitqueue/platform/extension/hook/noop"
 	queueMySQL "github.com/uber/submitqueue/platform/extension/messagequeue/mysql"
 	"github.com/uber/submitqueue/platform/pipeline"
+	servicemq "github.com/uber/submitqueue/service/messagequeue"
 	"github.com/uber/submitqueue/submitqueue/core/changeset"
 	"github.com/uber/submitqueue/submitqueue/extension/storage"
 	mysqlstorage "github.com/uber/submitqueue/submitqueue/extension/storage/mysql"
@@ -164,7 +165,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to load extension profiles: %w", err)
 	}
-	tenants, err := queueMySQL.ParseRequiredTenantsFromEnv()
+	tenants, err := servicemq.ParseRequiredTenants(os.Getenv("MQ_TENANTS"))
 	if err != nil {
 		return fmt.Errorf("failed to configure queue subscribers: %w", err)
 	}

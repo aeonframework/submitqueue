@@ -155,6 +155,7 @@ func TestPublishProcessCarriesQueueMetadata(t *testing.T) {
 
 	require.NoError(t, c.publishProcess(context.Background(), "request/monorepo/main/7", testQueue))
 	assert.Equal(t, testQueue, got.PartitionKey)
+	assert.Equal(t, testQueue, got.Tenant)
 	assert.Equal(t, testQueue, got.Metadata[entityqueue.MetadataKeyQueueName])
 }
 

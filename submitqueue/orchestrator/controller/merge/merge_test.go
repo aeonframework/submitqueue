@@ -164,6 +164,7 @@ func TestProcess_PublishesFullPayloadToRunway(t *testing.T) {
 
 	var gotTopic string
 	var gotPayload []byte
+	var gotTenant string
 	pub := queuemock.NewMockPublisher(ctrl)
 	pub.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, topic string, msg entityqueue.Message) error {
@@ -172,6 +173,7 @@ func TestProcess_PublishesFullPayloadToRunway(t *testing.T) {
 			}
 			gotTopic = topic
 			gotPayload = msg.Payload
+			gotTenant = msg.Tenant
 			return nil
 		},
 	).AnyTimes()
@@ -188,6 +190,7 @@ func TestProcess_PublishesFullPayloadToRunway(t *testing.T) {
 
 	// Full payload published to runway, keyed by the batch id (the correlation id).
 	assert.Equal(t, "runway-merge", gotTopic)
+	assert.Equal(t, batch.Queue, gotTenant)
 	got := &runwaymq.MergeRequest{}
 	require.NoError(t, runwaymq.Unmarshal(gotPayload, got))
 	assert.Equal(t, batch.ID, got.Id)

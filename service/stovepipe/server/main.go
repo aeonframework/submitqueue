@@ -43,6 +43,7 @@ import (
 	extqueue "github.com/uber/submitqueue/platform/extension/messagequeue"
 	queueMySQL "github.com/uber/submitqueue/platform/extension/messagequeue/mysql"
 	platformhook "github.com/uber/submitqueue/platform/hook"
+	servicemq "github.com/uber/submitqueue/service/messagequeue"
 	"github.com/uber/submitqueue/service/stovepipe/server/mapper"
 	"github.com/uber/submitqueue/stovepipe/controller"
 	"github.com/uber/submitqueue/stovepipe/controller/build"
@@ -254,7 +255,7 @@ func run() error {
 	}
 	defer queueDB.Close()
 
-	tenants, err := queueMySQL.ParseRequiredTenantsFromEnv()
+	tenants, err := servicemq.ParseRequiredTenants(os.Getenv("MQ_TENANTS"))
 	if err != nil {
 		return fmt.Errorf("failed to configure queue subscribers: %w", err)
 	}

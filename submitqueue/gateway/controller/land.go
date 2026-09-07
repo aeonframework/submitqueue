@@ -213,7 +213,7 @@ func (c *landController) publishToQueue(ctx context.Context, landRequest entity.
 	// - Payload: serialized LandRequest entity
 	// - Partition key: landRequest.Queue (ensures ordering per queue)
 	if err := publish.Message(ctx, c.registry, topickey.TopicKeyStart,
-		publish.IntentID(landRequest.ID), payload, landRequest.Queue); err != nil {
+		landRequest.Queue, publish.IntentID(landRequest.ID), payload, landRequest.Queue); err != nil {
 		return fmt.Errorf("failed to publish land request message: %w", err)
 	}
 

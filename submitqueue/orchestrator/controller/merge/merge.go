@@ -229,7 +229,7 @@ func (c *Controller) publish(ctx context.Context, key consumer.TopicKey, req *ru
 		return fmt.Errorf("failed to serialize merge request: %w", err)
 	}
 
-	if err := publish.Message(ctx, c.registry, key, publish.IntentID(req.GetId()), payload, partitionKey); err != nil {
+	if err := publish.Message(ctx, c.registry, key, req.GetQueueName(), publish.IntentID(req.GetId()), payload, partitionKey); err != nil {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 

@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-// http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package mysql
+package messagequeue
 
 import (
 	"strings"
@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseRequiredTenantsFromEnv(t *testing.T) {
+func TestParseRequiredTenants(t *testing.T) {
 	tests := []struct {
 		name    string
 		value   string
@@ -35,32 +35,19 @@ func TestParseRequiredTenantsFromEnv(t *testing.T) {
 			want:  []string{"monorepo/main", "monorepo/release"},
 		},
 		{
-			name:    "empty",
-			wantErr: true,
+			name:  "duplicates removed in first-seen order",
+			value: "monorepo/main,monorepo/release,monorepo/main",
+			want:  []string{"monorepo/main", "monorepo/release"},
 		},
-		{
-			name:    "whitespace and commas",
-			value:   " , , ",
-			wantErr: true,
-		},
-		{
-			name:    "tenant exceeds byte limit",
-			value:   strings.Repeat("x", maxIdentifierLength+1),
-			wantErr: true,
-		},
-		{
-			name:    "tenant contains non-ASCII characters",
-			value:   "monorepo/café",
-			wantErr: true,
-		},
+		{name: "empty", wantErr: true},
+		{name: "whitespace and commas", value: " , , ", wantErr: true},
+		{name: "tenant exceeds byte limit", value: strings.Repeat("x", maxTenantLength+1), wantErr: true},
+		{name: "tenant contains non-ASCII characters", value: "monorepo/café", wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("MQ_TENANTS", tt.value)
-
-			got, err := ParseRequiredTenantsFromEnv()
-
+			got, err := ParseRequiredTenants(tt.value)
 			if tt.wantErr {
 				require.Error(t, err)
 				return

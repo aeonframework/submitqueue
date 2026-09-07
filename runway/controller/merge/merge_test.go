@@ -118,11 +118,13 @@ func TestProcess_Success(t *testing.T) {
 
 	var gotTopic string
 	var gotPayload []byte
+	var gotTenant string
 	pub := queuemock.NewMockPublisher(ctrl)
 	pub.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, topic string, msg entityqueue.Message) error {
 			gotTopic = topic
 			gotPayload = msg.Payload
+			gotTenant = msg.Tenant
 			return nil
 		},
 	)
@@ -145,6 +147,7 @@ func TestProcess_Success(t *testing.T) {
 	require.NoError(t, controller.Process(context.Background(), delivery))
 
 	assert.Equal(t, "merge-signal", gotTopic)
+	assert.Equal(t, testQueue, gotTenant)
 	result := &runwaymq.MergeResult{}
 	require.NoError(t, runwaymq.Unmarshal(gotPayload, result))
 	assert.Equal(t, testID, result.Id)

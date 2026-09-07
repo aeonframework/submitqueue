@@ -212,7 +212,7 @@ func (c *Controller) publishToDependencyAnalysis(ctx context.Context, batch enti
 	}
 
 	if err := publish.Message(ctx, c.registry, topickey.TopicKeyDependencyAnalysis,
-		publish.IntentID(batch.ID), payload, batch.Queue); err != nil {
+		batch.Queue, publish.IntentID(batch.ID), payload, batch.Queue); err != nil {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 

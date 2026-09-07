@@ -456,6 +456,7 @@ func TestPublishRecordCarriesRequestID(t *testing.T) {
 	assert.Equal(t, testID, payload.Id)
 	assert.Equal(t, testID, got.ID)
 	assert.Equal(t, testID, got.PartitionKey)
+	assert.Equal(t, "monorepo/main", got.Tenant)
 	assert.Equal(t, "monorepo/main", got.Metadata[entityqueue.MetadataKeyQueueName])
 }
 

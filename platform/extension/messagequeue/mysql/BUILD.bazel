@@ -16,7 +16,6 @@ go_library(
         "stores.go",
         "subscriber.go",
         "subscriber_heartbeat_store.go",
-        "tenants.go",
     ],
     importpath = "github.com/uber/submitqueue/platform/extension/messagequeue/mysql",
     visibility = ["//visibility:public"],
@@ -43,7 +42,6 @@ go_test(
         "sql_test.go",
         "subscriber_heartbeat_store_test.go",
         "subscriber_test.go",
-        "tenants_test.go",
     ],
     embed = [":go_default_library"],
     deps = [

@@ -165,7 +165,7 @@ func (c *Controller) publish(ctx context.Context, result *runwaymq.MergeResult, 
 	}
 
 	if err := publish.Message(ctx, c.registry, c.signalTopicKey,
-		publish.IntentID(result.GetId(), "dlq"), payload, partitionKey); err != nil {
+		result.GetQueueName(), publish.IntentID(result.GetId(), "dlq"), payload, partitionKey); err != nil {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 

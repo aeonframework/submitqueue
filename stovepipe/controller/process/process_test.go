@@ -183,6 +183,7 @@ func expectStartValidationAnnounce(t *testing.T, m processMocks, id string) {
 		Publish(gomock.Any(), "stovepipe-hook", gomock.AssignableToTypeOf(entityqueue.Message{})).
 		DoAndReturn(func(_ context.Context, _ string, msg entityqueue.Message) error {
 			assert.Equal(t, id, msg.PartitionKey)
+			assert.Equal(t, testQueue, msg.Tenant)
 			event := &basehook.HookEvent{}
 			require.NoError(t, basehook.Unmarshal(msg.Payload, event))
 			assert.Equal(t, string(hookevent.TypeValidationRepositoryStarted), event.GetType())
@@ -202,6 +203,7 @@ func expectBuildPublish(t *testing.T, m processMocks, id string) {
 		DoAndReturn(func(_ context.Context, _ string, msg entityqueue.Message) error {
 			assert.Equal(t, id, msg.ID)
 			assert.Equal(t, id, msg.PartitionKey)
+			assert.Equal(t, testQueue, msg.Tenant)
 			assert.Equal(t, testQueue, msg.Metadata[entityqueue.MetadataKeyQueueName])
 			buildReq := &stovepipemq.BuildRequest{}
 			require.NoError(t, stovepipemq.Unmarshal(msg.Payload, buildReq))

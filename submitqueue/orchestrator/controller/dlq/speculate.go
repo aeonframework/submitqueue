@@ -203,7 +203,7 @@ func (c *speculateController) retrigger(ctx context.Context, store storage.Stora
 	// A distinct message ID every time: the queue deduplicates on
 	// (topic, partition, ID) against rows it has not collected yet, so reusing
 	// the batch ID would make this wake-up a silent no-op.
-	if err := publish.Message(ctx, c.registry, topickey.TopicKeySpeculate, publish.UniqueID(next), payload, queue); err != nil {
+	if err := publish.Message(ctx, c.registry, topickey.TopicKeySpeculate, queue, publish.UniqueID(next), payload, queue); err != nil {
 		metrics.NamedCounter(c.metricsScope, opName, "publish_errors", 1)
 		return fmt.Errorf("failed to re-trigger speculation for queue %s: %w", queue, err)
 	}

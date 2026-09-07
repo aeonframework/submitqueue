@@ -132,6 +132,7 @@ func TestPublishBuildSignalCarriesQueueMetadata(t *testing.T) {
 
 	require.NoError(t, c.publishBuildSignal(queueContext(), testBuildID, testQueue))
 	assert.Equal(t, testBuildID, got.PartitionKey)
+	assert.Equal(t, testQueue, got.Tenant)
 	assert.Equal(t, testQueue, got.Metadata[entityqueue.MetadataKeyQueueName])
 }
 

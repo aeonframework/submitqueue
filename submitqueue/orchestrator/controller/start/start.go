@@ -149,7 +149,7 @@ func (c *Controller) publish(ctx context.Context, key consumer.TopicKey, request
 		return fmt.Errorf("failed to serialize request ID: %w", err)
 	}
 
-	if err := publish.Message(ctx, c.registry, key, publish.IntentID(requestID), payload, queue); err != nil {
+	if err := publish.Message(ctx, c.registry, key, queue, publish.IntentID(requestID), payload, queue); err != nil {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 

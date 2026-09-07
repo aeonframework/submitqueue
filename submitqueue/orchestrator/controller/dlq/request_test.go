@@ -49,7 +49,7 @@ func TestDLQRequestController_Process_LandRequestPayload(t *testing.T) {
 
 	requestStore := storagemock.NewMockRequestStore(ctrl)
 	request := entity.Request{
-		ID: "q/1", Version: 1, State: entity.RequestStateStarted,
+		ID: "q/1", Queue: "q", Version: 1, State: entity.RequestStateStarted,
 	}
 	requestStore.EXPECT().Get(gomock.Any(), "q/1").Return(request, nil)
 	requestStore.EXPECT().Update(gomock.Any(), requestWithState(request, entity.RequestStateError), int32(1), int32(2)).Return(nil)
@@ -77,7 +77,7 @@ func TestDLQRequestController_Process_CancelRequestPayload(t *testing.T) {
 
 	requestStore := storagemock.NewMockRequestStore(ctrl)
 	request := entity.Request{
-		ID: "q/7", Version: 2, State: entity.RequestStateBatched,
+		ID: "q/7", Queue: "q", Version: 2, State: entity.RequestStateBatched,
 	}
 	requestStore.EXPECT().Get(gomock.Any(), "q/7").Return(request, nil)
 	requestStore.EXPECT().Update(gomock.Any(), requestWithState(request, entity.RequestStateError), int32(2), int32(3)).Return(nil)
@@ -105,7 +105,7 @@ func TestDLQRequestController_Process_RequestIDPayload(t *testing.T) {
 
 	requestStore := storagemock.NewMockRequestStore(ctrl)
 	request := entity.Request{
-		ID: "q/3", Version: 1, State: entity.RequestStateValidated,
+		ID: "q/3", Queue: "q", Version: 1, State: entity.RequestStateValidated,
 	}
 	requestStore.EXPECT().Get(gomock.Any(), "q/3").Return(request, nil)
 	requestStore.EXPECT().Update(gomock.Any(), requestWithState(request, entity.RequestStateError), int32(1), int32(2)).Return(nil)
@@ -134,7 +134,7 @@ func TestDLQRequestController_Process_DifferentTerminalOutcomeSkips(t *testing.T
 
 	requestStore := storagemock.NewMockRequestStore(ctrl)
 	requestStore.EXPECT().Get(gomock.Any(), "q/1").Return(entity.Request{
-		ID: "q/1", Version: 5, State: entity.RequestStateLanded,
+		ID: "q/1", Queue: "q", Version: 5, State: entity.RequestStateLanded,
 	}, nil)
 
 	store := storagemock.NewMockStorage(ctrl)
@@ -252,7 +252,7 @@ func TestDLQRequestController_Process_SkipsRequestOwnedByLiveBatch(t *testing.T)
 func TestDLQRequestController_Process_FailsWhenEveryBatchIsTerminal(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
-	request := entity.Request{ID: "q/1", Version: 1, State: entity.RequestStateBatched}
+	request := entity.Request{ID: "q/1", Queue: "q", Version: 1, State: entity.RequestStateBatched}
 	requestStore := storagemock.NewMockRequestStore(ctrl)
 	requestStore.EXPECT().Get(gomock.Any(), "q/1").Return(request, nil)
 	requestStore.EXPECT().Update(gomock.Any(), requestWithState(request, entity.RequestStateError), int32(1), int32(2)).Return(nil)
@@ -296,7 +296,7 @@ func TestDLQRequestController_Process_FailsWhenCreatingBatchNeverClaimed(t *test
 		t.Run(string(state), func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
-			request := entity.Request{ID: "q/1", Version: 1, State: state}
+			request := entity.Request{ID: "q/1", Queue: "q", Version: 1, State: state}
 			requestStore := storagemock.NewMockRequestStore(ctrl)
 			requestStore.EXPECT().Get(gomock.Any(), "q/1").Return(request, nil).Times(2)
 			requestStore.EXPECT().Update(gomock.Any(), requestWithState(request, entity.RequestStateError), int32(1), int32(2)).Return(nil)
@@ -338,7 +338,7 @@ func TestDLQRequestController_Process_SkipsWhenCreatingBatchAlreadyClaimed(t *te
 
 	requestStore := storagemock.NewMockRequestStore(ctrl)
 	requestStore.EXPECT().Get(gomock.Any(), "q/1").
-		Return(entity.Request{ID: "q/1", Version: 2, State: entity.RequestStateBatched}, nil)
+		Return(entity.Request{ID: "q/1", Queue: "q", Version: 2, State: entity.RequestStateBatched}, nil)
 	// Update must NOT be called — the batch owns the outcome.
 
 	associations := storagemock.NewMockRequestBatchStore(ctrl)

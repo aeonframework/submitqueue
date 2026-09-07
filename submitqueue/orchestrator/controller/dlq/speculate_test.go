@@ -127,7 +127,7 @@ func TestDLQSpeculateController_Process_Attribution(t *testing.T) {
 			batchStore.EXPECT().Get(gomock.Any(), tt.wantFailedBatch).Return(blamed, nil)
 			batchStore.EXPECT().Update(gomock.Any(), batchWithState(blamed, entity.BatchStateFailed), int32(2), int32(3)).Return(nil)
 
-			request := entity.Request{ID: "q/1", Version: 1, State: entity.RequestStateProcessing}
+			request := entity.Request{ID: "q/1", Queue: "q", Version: 1, State: entity.RequestStateProcessing}
 			requestStore := storagemock.NewMockRequestStore(ctrl)
 			requestStore.EXPECT().Get(gomock.Any(), "q/1").Return(request, nil)
 			requestStore.EXPECT().Update(gomock.Any(), requestWithState(request, entity.RequestStateError), int32(1), int32(2)).Return(nil)

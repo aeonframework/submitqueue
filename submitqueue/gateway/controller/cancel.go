@@ -140,7 +140,7 @@ func (c *cancelController) publishToQueue(ctx context.Context, cancelRequest ent
 	// most once, so a second Cancel for one already being cancelled is meant to
 	// dedup rather than enqueue redundant work.
 	if err := publish.Message(ctx, c.registry, topickey.TopicKeyCancel,
-		publish.IntentID(cancelRequest.ID), payload, cancelRequest.ID); err != nil {
+		cancelRequest.Queue, publish.IntentID(cancelRequest.ID), payload, cancelRequest.ID); err != nil {
 		return fmt.Errorf("failed to publish cancel request message: %w", err)
 	}
 

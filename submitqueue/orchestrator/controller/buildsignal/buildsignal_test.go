@@ -253,6 +253,7 @@ func TestProcess_SpeculateWakeUpIsNamedForTheObservedStatus(t *testing.T) {
 		h.speculatePub.EXPECT().Publish(gomock.Any(), "speculate", gomock.Any()).DoAndReturn(
 			func(_ context.Context, _ string, msg entityqueue.Message) error {
 				id = msg.ID
+				assert.Equal(t, "test-queue", msg.Tenant)
 				return nil
 			},
 		)

@@ -112,6 +112,7 @@ func TestProcess_DecodableRepublishesFailure(t *testing.T) {
 	require.Len(t, *published, 1)
 	got := (*published)[0]
 	assert.Equal(t, "merge-signal", got.topic)
+	assert.Equal(t, testQueue, got.msg.Tenant)
 
 	result := &runwaymq.MergeResult{}
 	require.NoError(t, runwaymq.Unmarshal(got.msg.Payload, result))

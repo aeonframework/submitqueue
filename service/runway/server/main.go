@@ -51,6 +51,7 @@ import (
 	"github.com/uber/submitqueue/runway/extension/merger/fake"
 	gitmerger "github.com/uber/submitqueue/runway/extension/merger/git"
 	"github.com/uber/submitqueue/runway/extension/merger/noop"
+	servicemq "github.com/uber/submitqueue/service/messagequeue"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -135,7 +136,7 @@ func run() error {
 	}
 	defer queueDB.Close()
 
-	tenants, err := queueMySQL.ParseRequiredTenantsFromEnv()
+	tenants, err := servicemq.ParseRequiredTenants(os.Getenv("MQ_TENANTS"))
 	if err != nil {
 		return fmt.Errorf("failed to configure queue subscribers: %w", err)
 	}

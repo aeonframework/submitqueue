@@ -78,7 +78,8 @@ func newDelivery(ctrl *gomock.Controller, msg entityqueue.Message) *consumermock
 func recordingRegistry(t *testing.T, ctrl *gomock.Controller, got *[]string) consumer.TopicRegistry {
 	pub := queuemock.NewMockPublisher(ctrl)
 	pub.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, topic string, _ entityqueue.Message) error {
+		func(_ context.Context, topic string, msg entityqueue.Message) error {
+			assert.Equal(t, testQueue, msg.Tenant)
 			*got = append(*got, topic)
 			return nil
 		},

@@ -23,9 +23,9 @@ import (
 	"github.com/uber/submitqueue/platform/publish"
 )
 
-// Publish sends one hook event to the domain's hook topic, partitioned by
-// partitionKey. The topic key is not a parameter: a domain runs a single hook
-// topic, and the caller's registry is what binds that key to a wire topic.
+// Publish sends one hook event to the domain's hook topic for tenant,
+// partitioned by partitionKey. The topic key is not a parameter: a domain runs
+// a single hook topic, and the caller's registry binds that key to a wire topic.
 //
 // The event id is the message id, so a redelivery republishing the same event
 // dedups into the original message instead of enqueuing a second one. Callers
@@ -37,6 +37,7 @@ import (
 func Publish(
 	ctx context.Context,
 	registry consumer.TopicRegistry,
+	tenant string,
 	event *basehook.HookEvent,
 	partitionKey string,
 ) error {
@@ -50,7 +51,7 @@ func Publish(
 	}
 
 	if err := publish.Message(
-		ctx, registry, basehook.TopicKeyHook, publish.IntentID(event.GetId()), body, partitionKey,
+		ctx, registry, basehook.TopicKeyHook, tenant, publish.IntentID(event.GetId()), body, partitionKey,
 	); err != nil {
 		return fmt.Errorf("failed to publish hook event %s: %w", event.GetId(), err)
 	}

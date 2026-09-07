@@ -78,6 +78,7 @@ type recordMocks struct {
 // plumbing carrying it. Setting err makes the publish fail.
 type hookRecorder struct {
 	events []*basehook.HookEvent
+	tenant string
 	err    error
 }
 
@@ -160,6 +161,7 @@ func newControllerForTopic(t *testing.T, ctrl *gomock.Controller, topicKey consu
 				return err
 			}
 			m.hooks.events = append(m.hooks.events, event)
+			m.hooks.tenant = msg.Tenant
 			return nil
 		}).AnyTimes()
 
@@ -287,6 +289,7 @@ func TestProcess_AdvancesBookmarkOnSuccess(t *testing.T) {
 			m.sourceControl.EXPECT().Promote(gomock.Any(), testURI).Return(nil)
 
 			require.NoError(t, c.Process(queueContext(), delivery(t, ctrl, recordPayload(t, testID))))
+			assert.Equal(t, testQueue, m.hooks.tenant)
 			assert.Equal(t, tt.wantURI, written.LastGreenURI)
 			assert.Equal(t, testID, written.LastGreenRequestID)
 

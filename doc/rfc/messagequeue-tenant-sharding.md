@@ -76,7 +76,7 @@ Fair-share, orphan sweep, and idle-lease release run per `(tenant, topic)`, not 
 
 ## Publish
 
-`platform/publish` stamps `Message.Tenant` from context metadata (`queue_name`). Empty tenant on publish is rejected. `PartitionKey` is unchanged.
+Every `platform/publish` call supplies tenant explicitly. The package stamps `Message.Tenant` and mirrors it into `queue_name` delivery metadata, rejecting empty tenants and conflicting caller metadata. `PartitionKey` is unchanged.
 
 ## Wiring
 
