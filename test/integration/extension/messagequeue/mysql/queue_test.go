@@ -120,6 +120,42 @@ func (s *SQLQueueIntegrationSuite) TearDownSuite() {
 	// Cleanup handled automatically by testutil.ComposeStack
 }
 
+func (s *SQLQueueIntegrationSuite) TestIndexedIdentifiersFitInnoDBKeyLimit() {
+	var asciiIdentifiers int
+	err := s.db.QueryRowContext(s.ctx, `
+		SELECT COUNT(DISTINCT s.TABLE_NAME, s.COLUMN_NAME)
+		FROM information_schema.STATISTICS AS s
+		JOIN information_schema.COLUMNS AS c
+		  ON c.TABLE_SCHEMA = s.TABLE_SCHEMA
+		 AND c.TABLE_NAME = s.TABLE_NAME
+		 AND c.COLUMN_NAME = s.COLUMN_NAME
+		WHERE s.TABLE_SCHEMA = DATABASE()
+		  AND c.DATA_TYPE = 'varchar'
+		  AND c.CHARACTER_MAXIMUM_LENGTH = 255
+		  AND c.CHARACTER_SET_NAME = 'ascii'
+		  AND c.COLLATION_NAME = 'ascii_bin'
+	`).Scan(&asciiIdentifiers)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), 15, asciiIdentifiers)
+
+	var utf8Identifiers int
+	err = s.db.QueryRowContext(s.ctx, `
+		SELECT COUNT(DISTINCT s.TABLE_NAME, s.COLUMN_NAME)
+		FROM information_schema.STATISTICS AS s
+		JOIN information_schema.COLUMNS AS c
+		  ON c.TABLE_SCHEMA = s.TABLE_SCHEMA
+		 AND c.TABLE_NAME = s.TABLE_NAME
+		 AND c.COLUMN_NAME = s.COLUMN_NAME
+		WHERE s.TABLE_SCHEMA = DATABASE()
+		  AND c.DATA_TYPE = 'varchar'
+		  AND c.CHARACTER_MAXIMUM_LENGTH = 255
+		  AND c.CHARACTER_SET_NAME = 'utf8mb4'
+		  AND c.COLLATION_NAME = 'utf8mb4_bin'
+	`).Scan(&utf8Identifiers)
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), 5, utf8Identifiers)
+}
+
 // testSubConfig returns a SubscriptionConfig with short lease/visibility
 // timeouts for fast integration tests. The defaults (30s lease, 60s visibility)
 // would make crash recovery tests wait 90s of real wall-clock time since the

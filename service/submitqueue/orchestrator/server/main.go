@@ -164,13 +164,17 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to load extension profiles: %w", err)
 	}
+	tenants, err := queueMySQL.ParseRequiredTenantsFromEnv()
+	if err != nil {
+		return fmt.Errorf("failed to configure queue subscribers: %w", err)
+	}
 
 	mysqlQueue, err := queueMySQL.NewQueue(queueMySQL.Params{
 		DB:           queueDB,
 		Logger:       logger,
 		LogLevel:     os.Getenv("QUEUE_LOG_LEVEL"),
 		MetricsScope: scope.SubScope("queue"),
-		Tenants:      tenantNamesFromProfiles(profilesCfg),
+		Tenants:      tenants,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create queue: %w", err)
@@ -340,14 +344,6 @@ func loadProfilesConfigFromEnv(logger *zap.Logger) (profilesConfig, error) {
 	}
 	logger.Info("extension profiles loaded", zap.String("path", path), zap.Int("queues", len(cfg.Queues)))
 	return cfg, nil
-}
-
-func tenantNamesFromProfiles(cfg profilesConfig) []string {
-	names := make([]string, 0, len(cfg.Queues))
-	for _, q := range cfg.Queues {
-		names = append(names, q.Name)
-	}
-	return names
 }
 
 // defaultProfilesConfig is the example topology used when no configuration file

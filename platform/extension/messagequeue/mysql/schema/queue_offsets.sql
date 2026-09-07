@@ -4,16 +4,16 @@
 
 CREATE TABLE IF NOT EXISTS queue_offsets (
     -- tenant is the shard isolation identity
-    tenant VARCHAR(255) NOT NULL,
+    tenant VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 
     -- Consumer group consuming the topic
-    consumer_group VARCHAR(255) NOT NULL,
+    consumer_group VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 
     -- Topic being consumed
-    topic VARCHAR(255) NOT NULL,
+    topic VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 
     -- Partition being consumed
-    partition_key VARCHAR(255) NOT NULL,
+    partition_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
 
     -- Last offset that was successfully acked for this partition
     offset_acked BIGINT UNSIGNED NOT NULL,

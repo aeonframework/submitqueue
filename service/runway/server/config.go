@@ -44,14 +44,6 @@ type mergeConfig struct {
 	Queues []namedQueueMergeConfig `yaml:"queues"`
 }
 
-func tenantNamesFromMergeConfig(cfg mergeConfig) []string {
-	names := make([]string, 0, len(cfg.Queues))
-	for _, q := range cfg.Queues {
-		names = append(names, q.Name)
-	}
-	return names
-}
-
 // namedQueueMergeConfig is one queue's entry.
 type namedQueueMergeConfig struct {
 	// Name is the queue this entry configures.

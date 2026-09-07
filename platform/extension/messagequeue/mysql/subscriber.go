@@ -531,6 +531,26 @@ func (s *subscriber) Subscribe(ctx context.Context, topic string, config extqueu
 	if closed {
 		return nil, ErrSubscriberClosed
 	}
+	if len(s.tenants) == 0 {
+		return nil, fmt.Errorf("subscribe topic %q: %w: no tenants configured", topic, ErrInvalidConfig)
+	}
+	for _, identifier := range []struct {
+		name  string
+		value string
+	}{
+		{name: "topic", value: topic},
+		{name: "consumer group", value: config.ConsumerGroup},
+		{name: "subscriber name", value: config.SubscriberName},
+	} {
+		if err := validateASCIIIdentifier(identifier.name, identifier.value); err != nil {
+			return nil, fmt.Errorf("subscribe topic %q: %w: %v", topic, ErrInvalidConfig, err)
+		}
+	}
+	for _, tenant := range s.tenants {
+		if err := validateASCIIIdentifier("tenant", tenant); err != nil {
+			return nil, fmt.Errorf("subscribe topic %q: %w: %v", topic, ErrInvalidConfig, err)
+		}
+	}
 	if err := validateRetryConfig(config.Retry); err != nil {
 		return nil, fmt.Errorf("subscribe topic %q: %w: %v", topic, ErrInvalidConfig, err)
 	}
@@ -762,16 +782,22 @@ func (s *subscriber) discoverAndReconcileWorkers(ctx context.Context, sub *subsc
 	cfg := sub.config
 
 	sub.workersMu.Lock()
-	cachedDiscovered := sub.lastDiscoveredPartitions
+	cachedDiscovered := append([]string(nil), sub.lastDiscoveredPartitions...)
+	existingWorkers := make([]string, 0, len(sub.workers))
+	for key := range sub.workers {
+		existingWorkers = append(existingWorkers, key)
+	}
 	sub.workersMu.Unlock()
 
-	allDiscovered := make([]string, 0)
-	allLeased := make([]string, 0)
+	discoveredByTenant := make(map[string][]string, len(s.tenants))
+	leasedByTenant := make(map[string][]string, len(s.tenants))
+	var discoveryErrs []error
 
 	for _, tenant := range s.tenants {
 		leasedPartitions, err := s.leaseStore.GetLeasedPartitions(ctx, tenant, sub.topic, cfg.SubscriberName, cfg.ConsumerGroup)
 		if err != nil {
-			return fmt.Errorf("get leased partitions tenant=%s: %w", tenant, err)
+			discoveryErrs = append(discoveryErrs, fmt.Errorf("get leased partitions tenant=%s: %w", tenant, err))
+			continue
 		}
 
 		cachedForTenant := partitionKeysForTenant(cachedDiscovered, tenant)
@@ -780,35 +806,86 @@ func (s *subscriber) discoverAndReconcileWorkers(ctx context.Context, sub *subsc
 		if !uncapped {
 			maxPartitions, err = s.fairShareCap(ctx, sub, tenant, leasedPartitions, cachedForTenant)
 			if err != nil {
-				return fmt.Errorf("compute fair share cap tenant=%s: %w", tenant, err)
+				discoveryErrs = append(discoveryErrs, fmt.Errorf("compute fair share cap tenant=%s: %w", tenant, err))
+				continue
 			}
 		}
 
 		_, discoveredPartitions, err := s.leaseStore.DiscoverAndAcquirePartitions(ctx, tenant, sub.topic, cfg.SubscriberName, cfg.ConsumerGroup, cfg.LeaseDurationMs, maxPartitions)
 		if err != nil {
-			return fmt.Errorf("discover and acquire partitions tenant=%s: %w", tenant, err)
+			discoveryErrs = append(discoveryErrs, fmt.Errorf("discover and acquire partitions tenant=%s: %w", tenant, err))
+			continue
 		}
 
 		leasedPartitions, err = s.leaseStore.GetLeasedPartitions(ctx, tenant, sub.topic, cfg.SubscriberName, cfg.ConsumerGroup)
 		if err != nil {
-			return fmt.Errorf("get leased partitions after acquire tenant=%s: %w", tenant, err)
+			discoveryErrs = append(discoveryErrs, fmt.Errorf("get leased partitions after acquire tenant=%s: %w", tenant, err))
+			continue
 		}
 
+		discoveredByTenant[tenant] = discoveredPartitions
+		leasedByTenant[tenant] = leasedPartitions
+	}
+
+	allDiscovered := make([]string, 0)
+	allLeased := make([]string, 0)
+	nextDrainedSince := make(map[string]time.Time, len(sub.drainedSince))
+	grace := time.Duration(idleLeaseReleaseAfterLeaseDurations*cfg.LeaseDurationMs) * time.Millisecond
+	now := time.Now()
+	var expired []string
+
+	for _, tenant := range s.tenants {
+		discoveredPartitions, succeeded := discoveredByTenant[tenant]
+		if !succeeded {
+			for _, pk := range partitionKeysForTenant(cachedDiscovered, tenant) {
+				allDiscovered = append(allDiscovered, workerKey(tenant, pk))
+			}
+			for _, pk := range partitionKeysForTenant(existingWorkers, tenant) {
+				allLeased = append(allLeased, workerKey(tenant, pk))
+			}
+			for key, since := range sub.drainedSince {
+				keyTenant, _ := splitWorkerKey(key)
+				if keyTenant == tenant {
+					nextDrainedSince[key] = since
+				}
+			}
+			continue
+		}
+
+		leasedPartitions := leasedByTenant[tenant]
+		tenantDiscovered := make([]string, 0, len(discoveredPartitions))
 		for _, pk := range discoveredPartitions {
-			allDiscovered = append(allDiscovered, workerKey(tenant, pk))
+			key := workerKey(tenant, pk)
+			tenantDiscovered = append(tenantDiscovered, key)
+			allDiscovered = append(allDiscovered, key)
 		}
+		tenantLeased := make([]string, 0, len(leasedPartitions))
 		for _, pk := range leasedPartitions {
-			allLeased = append(allLeased, workerKey(tenant, pk))
+			key := workerKey(tenant, pk)
+			tenantLeased = append(tenantLeased, key)
+			allLeased = append(allLeased, key)
 		}
+
+		previouslyDrained := make(map[string]time.Time)
+		for key, since := range sub.drainedSince {
+			keyTenant, _ := splitWorkerKey(key)
+			if keyTenant == tenant {
+				previouslyDrained[key] = since
+			}
+		}
+		tracked, tenantExpired := updateDrainedTracking(previouslyDrained, tenantLeased, tenantDiscovered, grace, now)
+		for key, since := range tracked {
+			nextDrainedSince[key] = since
+		}
+		expired = append(expired, tenantExpired...)
 	}
 
 	sub.workersMu.Lock()
 	sub.lastDiscoveredPartitions = allDiscovered
 	sub.workersMu.Unlock()
 
-	grace := time.Duration(idleLeaseReleaseAfterLeaseDurations*cfg.LeaseDurationMs) * time.Millisecond
-	var expired []string
-	sub.drainedSince, expired = updateDrainedTracking(sub.drainedSince, allLeased, allDiscovered, grace, time.Now())
+	sub.drainedSince = nextDrainedSince
+	sort.Strings(expired)
 	if len(expired) > 0 {
 		released := make(map[string]struct{}, len(expired))
 		for _, key := range expired {
@@ -856,7 +933,7 @@ func (s *subscriber) discoverAndReconcileWorkers(ctx context.Context, sub *subsc
 	}
 
 	s.reconcilePartitionWorkers(ctx, sub, allLeased)
-	return nil
+	return errors.Join(discoveryErrs...)
 }
 
 // updateDrainedTracking recomputes, for every owned partition absent from
@@ -1339,19 +1416,21 @@ func (s *subscriber) renewLeases(ctx context.Context, sub *subscription, tenant 
 // releaseAllLeases releases all leases for a topic.
 func (s *subscriber) releaseAllLeases(ctx context.Context, sub *subscription) error {
 	cfg := sub.config
+	var releaseErrs []error
 	for _, tenant := range s.tenants {
 		leasedPartitions, err := s.leaseStore.GetLeasedPartitions(ctx, tenant, sub.topic, cfg.SubscriberName, cfg.ConsumerGroup)
 		if err != nil {
-			return fmt.Errorf("get leased partitions for release tenant=%s: %w", tenant, err)
+			releaseErrs = append(releaseErrs, fmt.Errorf("get leased partitions for release tenant=%s: %w", tenant, err))
+			continue
 		}
 
 		for _, partitionKey := range leasedPartitions {
 			if err := s.leaseStore.ReleaseLease(ctx, tenant, sub.topic, partitionKey, cfg.SubscriberName, cfg.ConsumerGroup); err != nil {
-				return fmt.Errorf("release lease tenant=%s partition=%s: %w", tenant, partitionKey, err)
+				releaseErrs = append(releaseErrs, fmt.Errorf("release lease tenant=%s partition=%s: %w", tenant, partitionKey, err))
 			}
 		}
 	}
-	return nil
+	return errors.Join(releaseErrs...)
 }
 
 // sendHeartbeat sends a heartbeat for this subscriber.
@@ -1366,12 +1445,13 @@ func (s *subscriber) sendHeartbeat(ctx context.Context, sub *subscription, tenan
 // deregisterHeartbeat removes this subscriber's heartbeat entry during shutdown.
 func (s *subscriber) deregisterHeartbeat(ctx context.Context, sub *subscription) error {
 	cfg := sub.config
+	var deregistrationErrs []error
 	for _, tenant := range s.tenants {
 		if err := s.heartbeatStore.Deregister(ctx, tenant, sub.topic, cfg.SubscriberName, cfg.ConsumerGroup); err != nil {
-			return fmt.Errorf("deregister heartbeat tenant=%s: %w", tenant, err)
+			deregistrationErrs = append(deregistrationErrs, fmt.Errorf("deregister heartbeat tenant=%s: %w", tenant, err))
 		}
 	}
-	return nil
+	return errors.Join(deregistrationErrs...)
 }
 
 // rebalance checks if this subscriber holds more partitions than its fair share

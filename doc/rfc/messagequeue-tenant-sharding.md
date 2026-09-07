@@ -31,13 +31,14 @@ The MQ schema does not use `queue` — that word is overloaded (SubmitQueue doma
 
 ## Schema
 
-Every table's primary key leads with `tenant`. Secondary indexes that do not lead with `tenant` are removed.
+Every table's primary key leads with `tenant`. Tenant, topic, consumer-group, and subscriber identifiers use `VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin`; partition keys and message IDs use explicit `VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`. This keeps operational identifiers readable, preserves unrestricted UTF-8 ordering keys and IDs, and keeps the largest composite key within InnoDB's 3072-byte limit. The backend validates each contract before database access. Secondary indexes that do not lead with `tenant` are removed except `queue_messages.idx_offset`, which InnoDB requires because the `AUTO_INCREMENT offset` column must be leftmost in an index.
 
 ### `queue_messages`
 
 - PK: `(tenant, topic, partition_key, offset)`
 - Unique: `(tenant, topic, partition_key, id)`
-- `offset` is per-partition, not global; fetch is `WHERE tenant=? AND topic=? AND partition_key=? AND offset>? ORDER BY offset`
+- Required InnoDB index: `idx_offset (offset)` for the `AUTO_INCREMENT` column
+- `offset` is allocated from a shard-wide monotonic sequence and used as an ordering cursor within each partition; fetch is `WHERE tenant=? AND topic=? AND partition_key=? AND offset>? ORDER BY offset`
 
 ### `queue_delivery_state`
 
@@ -63,7 +64,7 @@ DLQ moves rewrite `topic` to `original + suffix` and keep `tenant` + `partition_
 
 Today partition discovery runs `SELECT DISTINCT partition_key FROM queue_messages WHERE topic=?`, which scatter-gathers across all Vitess shards.
 
-The subscriber takes a configured tenant list (SubmitQueue: queue names from YAML). Discovery becomes:
+The subscriber takes an explicit configured tenant list from `MQ_TENANTS`. Consumer processes reject an empty list at startup; Stovepipe also rejects ingest requests for names outside the list. Discovery becomes:
 
 ```sql
 SELECT DISTINCT partition_key FROM queue_messages
@@ -71,7 +72,7 @@ WHERE tenant = ? AND topic = ?
 ORDER BY partition_key
 ```
 
-Fair-share, orphan sweep, and idle-lease release run per `(tenant, topic)`, not across all tenants on a topic.
+Fair-share, orphan sweep, and idle-lease release run per `(tenant, topic)`, not across all tenants on a topic. Discovery and shutdown attempt every configured tenant and aggregate errors so one unavailable shard does not block unrelated tenants.
 
 ## Publish
 
@@ -79,7 +80,7 @@ Fair-share, orphan sweep, and idle-lease release run per `(tenant, topic)`, not 
 
 ## Wiring
 
-One `extqueue.Queue` and one VTGate DSN per service. `NewQueue` / subscriber `Params` carry `Tenants []string`. Service `main.go` fills that from configured queue names.
+One `extqueue.Queue` and one VTGate DSN per service. `NewQueue` / subscriber `Params` carry `Tenants []string`. Consumer service wiring parses the authoritative comma-separated `MQ_TENANTS` list once and passes it to the backend and any ingress validation.
 
 ## Out of scope
 

@@ -4,16 +4,16 @@
 
 CREATE TABLE IF NOT EXISTS queue_subscriber_heartbeats (
     -- tenant is the shard isolation identity
-    tenant VARCHAR(255) NOT NULL,
+    tenant VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 
     -- consumer_group identifies the consumer group this subscriber belongs to
-    consumer_group VARCHAR(255) NOT NULL,
+    consumer_group VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 
     -- topic is the topic this subscriber is consuming from
-    topic VARCHAR(255) NOT NULL,
+    topic VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 
     -- subscriber_name uniquely identifies this subscriber within the consumer group
-    subscriber_name VARCHAR(255) NOT NULL,
+    subscriber_name VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 
     -- heartbeat_at is the Unix timestamp in milliseconds of the last heartbeat
     heartbeat_at BIGINT UNSIGNED NOT NULL,

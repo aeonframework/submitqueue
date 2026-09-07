@@ -138,7 +138,8 @@ func check(file, content string, shardColumns map[string]bool) (int, []violation
 
 		for _, idx := range indexRe.FindAllStringSubmatch(body, -1) {
 			idxColumns := splitColumns(idx[2])
-			if len(idxColumns) == 1 && idxColumns[0] == "offset" {
+			if table == "queue_messages" && idx[1] == "idx_offset" &&
+				len(idxColumns) == 1 && idxColumns[0] == "offset" {
 				// InnoDB requires AUTO_INCREMENT to be the leading column of some
 				// index; queue_messages keeps a dedicated offset-only index for that.
 				continue

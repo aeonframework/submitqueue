@@ -5,19 +5,19 @@
 
 CREATE TABLE IF NOT EXISTS queue_messages (
     -- tenant is the shard isolation identity (SubmitQueue maps queueName here at wiring)
-    tenant VARCHAR(255) NOT NULL,
+    tenant VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 
     -- Topic identifies the pipeline stage
-    topic VARCHAR(255) NOT NULL,
+    topic VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 
     -- Partition key for distributing work across workers within a tenant
-    partition_key VARCHAR(255) NOT NULL,
+    partition_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
 
     -- Auto-incrementing offset for ordering within (tenant, topic, partition_key)
     offset BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 
     -- Message identification
-    id VARCHAR(255) NOT NULL,
+    id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
 
     -- Message data
     payload BLOB NOT NULL,
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS queue_messages (
     failed_at BIGINT UNSIGNED NOT NULL,
     failure_count INT UNSIGNED NOT NULL,
     last_error TEXT NOT NULL,
-    original_topic VARCHAR(255) NOT NULL,
+    original_topic VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     failure_detail JSON,
 
     PRIMARY KEY (tenant, topic, partition_key, offset),

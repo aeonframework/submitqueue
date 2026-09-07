@@ -15,6 +15,7 @@
 package mysql
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
@@ -28,4 +29,18 @@ func ParseTenantsFromEnv() []string {
 		}
 	}
 	return out
+}
+
+// ParseRequiredTenantsFromEnv reads MQ_TENANTS and rejects an empty tenant list.
+func ParseRequiredTenantsFromEnv() ([]string, error) {
+	tenants := ParseTenantsFromEnv()
+	if len(tenants) == 0 {
+		return nil, fmt.Errorf("MQ_TENANTS must contain at least one tenant")
+	}
+	for _, tenant := range tenants {
+		if err := validateASCIIIdentifier("tenant", tenant); err != nil {
+			return nil, fmt.Errorf("invalid MQ_TENANTS: %w", err)
+		}
+	}
+	return tenants, nil
 }

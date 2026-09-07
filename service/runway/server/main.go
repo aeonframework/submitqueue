@@ -135,9 +135,9 @@ func run() error {
 	}
 	defer queueDB.Close()
 
-	mergeCfg, err := loadMergeConfigFromEnv(logger)
+	tenants, err := queueMySQL.ParseRequiredTenantsFromEnv()
 	if err != nil {
-		return fmt.Errorf("failed to load merge config: %w", err)
+		return fmt.Errorf("failed to configure queue subscribers: %w", err)
 	}
 
 	mysqlQueue, err := queueMySQL.NewQueue(queueMySQL.Params{
@@ -145,7 +145,7 @@ func run() error {
 		Logger:       logger,
 		LogLevel:     os.Getenv("QUEUE_LOG_LEVEL"),
 		MetricsScope: scope.SubScope("queue"),
-		Tenants:      tenantNamesFromMergeConfig(mergeCfg),
+		Tenants:      tenants,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create queue: %w", err)

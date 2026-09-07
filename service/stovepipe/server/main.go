@@ -254,12 +254,17 @@ func run() error {
 	}
 	defer queueDB.Close()
 
+	tenants, err := queueMySQL.ParseRequiredTenantsFromEnv()
+	if err != nil {
+		return fmt.Errorf("failed to configure queue subscribers: %w", err)
+	}
+
 	mysqlQueue, err := queueMySQL.NewQueue(queueMySQL.Params{
 		DB:           queueDB,
 		Logger:       logger,
 		LogLevel:     os.Getenv("QUEUE_LOG_LEVEL"),
 		MetricsScope: scope.SubScope("queue"),
-		Tenants:      parseMQTenantsFromEnv(),
+		Tenants:      tenants,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create queue: %w", err)
@@ -341,6 +346,7 @@ func run() error {
 		storageFty,
 		materializer,
 		registry,
+		tenants,
 	)
 	srv := &StovepipeServer{
 		pingController:   pingController,
@@ -408,12 +414,6 @@ func run() error {
 	}
 
 	return err
-}
-
-// parseMQTenantsFromEnv reads MQ_TENANTS. Stovepipe accepts any queue at ingest
-// but discovery requires configured tenants.
-func parseMQTenantsFromEnv() []string {
-	return queueMySQL.ParseTenantsFromEnv()
 }
 
 // registerPrimaryControllers creates the primary-pipeline queue controllers and

@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -43,6 +44,8 @@ func setupPublisherTest(t *testing.T, mockStore *MockmessageStore) extqueue.Publ
 }
 
 func TestPublisher_Publish(t *testing.T) {
+	overlong := strings.Repeat("x", maxIdentifierLength+1)
+	noStoreCall := func(*MockmessageStore) {}
 	tests := []struct {
 		name      string
 		topic     string
@@ -111,6 +114,56 @@ func TestPublisher_Publish(t *testing.T) {
 			setupMock: func(m *MockmessageStore) {
 				m.EXPECT().Insert(gomock.Any(), testTenant, "topic-with-dash", gomock.Any()).Return(nil).Times(1)
 			},
+		},
+		{
+			name:      "rejects overlong tenant",
+			topic:     "test_topic",
+			messages:  []entityqueue.Message{{Tenant: overlong, ID: "msg1", PartitionKey: "part1"}},
+			wantErr:   true,
+			setupMock: noStoreCall,
+		},
+		{
+			name:      "rejects overlong topic",
+			topic:     overlong,
+			messages:  []entityqueue.Message{{Tenant: testTenant, ID: "msg1", PartitionKey: "part1"}},
+			wantErr:   true,
+			setupMock: noStoreCall,
+		},
+		{
+			name:      "rejects overlong message ID",
+			topic:     "test_topic",
+			messages:  []entityqueue.Message{{Tenant: testTenant, ID: overlong, PartitionKey: "part1"}},
+			wantErr:   true,
+			setupMock: noStoreCall,
+		},
+		{
+			name:      "rejects overlong partition key",
+			topic:     "test_topic",
+			messages:  []entityqueue.Message{{Tenant: testTenant, ID: "msg1", PartitionKey: overlong}},
+			wantErr:   true,
+			setupMock: noStoreCall,
+		},
+		{
+			name:     "accepts UTF-8 message ID and partition key",
+			topic:    "test_topic",
+			messages: []entityqueue.Message{{Tenant: testTenant, ID: "msg-é", PartitionKey: strings.Repeat("é", maxIdentifierLength)}},
+			setupMock: func(m *MockmessageStore) {
+				m.EXPECT().Insert(gomock.Any(), testTenant, "test_topic", gomock.Any()).Return(nil)
+			},
+		},
+		{
+			name:      "rejects non-ASCII tenant",
+			topic:     "test_topic",
+			messages:  []entityqueue.Message{{Tenant: "tenant-é", ID: "msg1", PartitionKey: "part1"}},
+			wantErr:   true,
+			setupMock: noStoreCall,
+		},
+		{
+			name:      "rejects non-ASCII topic",
+			topic:     "topic-é",
+			messages:  []entityqueue.Message{{Tenant: testTenant, ID: "msg1", PartitionKey: "part1"}},
+			wantErr:   true,
+			setupMock: noStoreCall,
 		},
 	}
 

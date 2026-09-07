@@ -6,6 +6,7 @@ go_library(
         "constants.go",
         "delivery_state_store.go",
         "errors.go",
+        "identifier.go",
         "message_store.go",
         "mock_stores.go",
         "offset_store.go",
@@ -42,6 +43,7 @@ go_test(
         "sql_test.go",
         "subscriber_heartbeat_store_test.go",
         "subscriber_test.go",
+        "tenants_test.go",
     ],
     embed = [":go_default_library"],
     deps = [

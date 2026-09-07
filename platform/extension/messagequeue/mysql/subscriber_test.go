@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,6 +176,51 @@ func TestSubscriber_SubscribeRejectsInvalidRetryConfig(t *testing.T) {
 			require.Nil(t, ch)
 			require.ErrorIs(t, err, ErrInvalidConfig)
 			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestSubscriber_SubscribeRejectsInvalidIdentifiers(t *testing.T) {
+	overlong := strings.Repeat("x", maxIdentifierLength+1)
+	validConfig := testSubscriptionConfig()
+	tests := []struct {
+		name    string
+		topic   string
+		config  extqueue.SubscriptionConfig
+		tenants []string
+	}{
+		{name: "no tenants", topic: "test_topic", config: validConfig},
+		{name: "overlong topic", topic: overlong, config: validConfig, tenants: []string{testTenant}},
+		{name: "overlong consumer group", topic: "test_topic", config: func() extqueue.SubscriptionConfig {
+			cfg := validConfig
+			cfg.ConsumerGroup = overlong
+			return cfg
+		}(), tenants: []string{testTenant}},
+		{name: "overlong subscriber name", topic: "test_topic", config: func() extqueue.SubscriptionConfig {
+			cfg := validConfig
+			cfg.SubscriberName = overlong
+			return cfg
+		}(), tenants: []string{testTenant}},
+		{name: "overlong tenant", topic: "test_topic", config: validConfig, tenants: []string{overlong}},
+		{name: "non-ASCII tenant", topic: "test_topic", config: validConfig, tenants: []string{"tenant-é"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sub := NewSubscriber(
+				zaptest.NewLogger(t).Sugar(),
+				tally.NoopScope,
+				nil,
+				nil,
+				nil,
+				nil,
+				nil,
+				tt.tenants,
+			)
+
+			ch, err := sub.Subscribe(context.Background(), tt.topic, tt.config)
+			require.Nil(t, ch)
+			require.ErrorIs(t, err, ErrInvalidConfig)
 		})
 	}
 }
@@ -771,6 +817,185 @@ func TestSubscriber_ReconcilePartitionWorkers(t *testing.T) {
 			s.stopAllWorkers(sub)
 		})
 	}
+}
+
+func TestSubscriber_DiscoverAndReconcileWorkersIsolatesTenantFailures(t *testing.T) {
+	const (
+		tenantBefore     = "tenant-before"
+		tenantFailed     = "tenant-failed"
+		tenantAfter      = "tenant-after"
+		tenantFailedLast = "tenant-failed-last"
+	)
+
+	ctrl := gomock.NewController(t)
+	mockLeaseStore := NewMockpartitionLeaseStore(ctrl)
+	discoveryErr := errors.New("tenant store unavailable")
+	lastDiscoveryErr := errors.New("last tenant store unavailable")
+
+	cfg := testSubscriptionConfig()
+	cfg.PollIntervalMs = int64(time.Hour / time.Millisecond)
+
+	gomock.InOrder(
+		mockLeaseStore.EXPECT().
+			GetLeasedPartitions(gomock.Any(), tenantBefore, "test-topic", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return(nil, nil),
+		mockLeaseStore.EXPECT().
+			DiscoverAndAcquirePartitions(gomock.Any(), tenantBefore, "test-topic", cfg.SubscriberName, cfg.ConsumerGroup, cfg.LeaseDurationMs, 0).
+			Return(1, []string{"before-new"}, nil),
+		mockLeaseStore.EXPECT().
+			GetLeasedPartitions(gomock.Any(), tenantBefore, "test-topic", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return([]string{"before-new"}, nil),
+		mockLeaseStore.EXPECT().
+			GetLeasedPartitions(gomock.Any(), tenantFailed, "test-topic", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return(nil, discoveryErr),
+		mockLeaseStore.EXPECT().
+			GetLeasedPartitions(gomock.Any(), tenantAfter, "test-topic", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return(nil, nil),
+		mockLeaseStore.EXPECT().
+			DiscoverAndAcquirePartitions(gomock.Any(), tenantAfter, "test-topic", cfg.SubscriberName, cfg.ConsumerGroup, cfg.LeaseDurationMs, 0).
+			Return(1, []string{"after-new"}, nil),
+		mockLeaseStore.EXPECT().
+			GetLeasedPartitions(gomock.Any(), tenantAfter, "test-topic", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return([]string{"after-new"}, nil),
+		mockLeaseStore.EXPECT().
+			GetLeasedPartitions(gomock.Any(), tenantFailedLast, "test-topic", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return(nil, lastDiscoveryErr),
+	)
+
+	s := NewSubscriber(
+		zaptest.NewLogger(t).Sugar(),
+		tally.NoopScope,
+		NewMockmessageStore(ctrl),
+		NewMockoffsetStore(ctrl),
+		mockLeaseStore,
+		newTestHeartbeatStore(ctrl),
+		newTestDeliveryStateStore(ctrl),
+		[]string{tenantBefore, tenantFailed, tenantAfter, tenantFailedLast},
+	)
+
+	failedWorkerDone := make(chan struct{})
+	close(failedWorkerDone)
+	failedWorkerKey := workerKey(tenantFailed, "failed-existing")
+	failedDrainSince := time.Now().Add(-time.Hour)
+	sub := &subscription{
+		topic:      "test-topic",
+		config:     cfg,
+		deliveryCh: make(chan extqueue.Delivery, 3),
+		workers: map[string]*partitionWorker{
+			failedWorkerKey: {
+				cancelFunc: func() {},
+				done:       failedWorkerDone,
+			},
+		},
+		lastDiscoveredPartitions: []string{workerKey(tenantFailed, "failed-discovered")},
+		drainedSince:             map[string]time.Time{failedWorkerKey: failedDrainSince},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() {
+		cancel()
+		s.stopAllWorkers(sub)
+		sub.workerWg.Wait()
+	})
+
+	err := s.discoverAndReconcileWorkers(ctx, sub, true)
+	require.ErrorIs(t, err, discoveryErr)
+	require.ErrorIs(t, err, lastDiscoveryErr)
+
+	sub.workersMu.Lock()
+	workerKeys := make([]string, 0, len(sub.workers))
+	for key := range sub.workers {
+		workerKeys = append(workerKeys, key)
+	}
+	discovered := append([]string(nil), sub.lastDiscoveredPartitions...)
+	sub.workersMu.Unlock()
+
+	assert.ElementsMatch(t, []string{
+		workerKey(tenantBefore, "before-new"),
+		failedWorkerKey,
+		workerKey(tenantAfter, "after-new"),
+	}, workerKeys)
+	assert.ElementsMatch(t, []string{
+		workerKey(tenantBefore, "before-new"),
+		workerKey(tenantFailed, "failed-discovered"),
+		workerKey(tenantAfter, "after-new"),
+	}, discovered)
+	assert.Equal(t, failedDrainSince, sub.drainedSince[failedWorkerKey])
+}
+
+func TestSubscriber_ReleaseAllLeasesContinuesAfterErrors(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockLeaseStore := NewMockpartitionLeaseStore(ctrl)
+	releaseErr := errors.New("release failed")
+	discoveryErr := errors.New("lease lookup failed")
+	cfg := testSubscriptionConfig()
+
+	gomock.InOrder(
+		mockLeaseStore.EXPECT().
+			GetLeasedPartitions(gomock.Any(), "tenant-1", "test-topic", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return([]string{"p1", "p2"}, nil),
+		mockLeaseStore.EXPECT().
+			ReleaseLease(gomock.Any(), "tenant-1", "test-topic", "p1", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return(releaseErr),
+		mockLeaseStore.EXPECT().
+			ReleaseLease(gomock.Any(), "tenant-1", "test-topic", "p2", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return(nil),
+		mockLeaseStore.EXPECT().
+			GetLeasedPartitions(gomock.Any(), "tenant-2", "test-topic", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return(nil, discoveryErr),
+		mockLeaseStore.EXPECT().
+			GetLeasedPartitions(gomock.Any(), "tenant-3", "test-topic", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return([]string{"p3"}, nil),
+		mockLeaseStore.EXPECT().
+			ReleaseLease(gomock.Any(), "tenant-3", "test-topic", "p3", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return(nil),
+	)
+
+	s := NewSubscriber(
+		zaptest.NewLogger(t).Sugar(), tally.NoopScope,
+		NewMockmessageStore(ctrl), NewMockoffsetStore(ctrl),
+		mockLeaseStore, NewMocksubscriberHeartbeatStore(ctrl),
+		NewMockdeliveryStateStore(ctrl),
+		[]string{"tenant-1", "tenant-2", "tenant-3"},
+	)
+	sub := &subscription{topic: "test-topic", config: cfg}
+
+	err := s.releaseAllLeases(context.Background(), sub)
+	require.ErrorIs(t, err, releaseErr)
+	require.ErrorIs(t, err, discoveryErr)
+}
+
+func TestSubscriber_DeregisterHeartbeatContinuesAfterErrors(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockHeartbeatStore := NewMocksubscriberHeartbeatStore(ctrl)
+	firstErr := errors.New("first deregistration failed")
+	lastErr := errors.New("last deregistration failed")
+	cfg := testSubscriptionConfig()
+
+	gomock.InOrder(
+		mockHeartbeatStore.EXPECT().
+			Deregister(gomock.Any(), "tenant-1", "test-topic", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return(firstErr),
+		mockHeartbeatStore.EXPECT().
+			Deregister(gomock.Any(), "tenant-2", "test-topic", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return(nil),
+		mockHeartbeatStore.EXPECT().
+			Deregister(gomock.Any(), "tenant-3", "test-topic", cfg.SubscriberName, cfg.ConsumerGroup).
+			Return(lastErr),
+	)
+
+	s := NewSubscriber(
+		zaptest.NewLogger(t).Sugar(), tally.NoopScope,
+		NewMockmessageStore(ctrl), NewMockoffsetStore(ctrl),
+		NewMockpartitionLeaseStore(ctrl), mockHeartbeatStore,
+		NewMockdeliveryStateStore(ctrl),
+		[]string{"tenant-1", "tenant-2", "tenant-3"},
+	)
+	sub := &subscription{topic: "test-topic", config: cfg}
+
+	err := s.deregisterHeartbeat(context.Background(), sub)
+	require.ErrorIs(t, err, firstErr)
+	require.ErrorIs(t, err, lastErr)
 }
 
 // TestSubscriber_PartitionWorkerPollAndDeliver verifies a partition worker delivers messages.

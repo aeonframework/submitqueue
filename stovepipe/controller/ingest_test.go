@@ -97,7 +97,7 @@ func newIngestController(t *testing.T, ctrl *gomock.Controller) (*IngestControll
 	})
 	require.NoError(t, err)
 
-	c := NewIngestController(zap.NewNop().Sugar(), tally.NewTestScope("test", nil), staticCounterFactory{counter: m.counter}, m.factory, staticStorageFactory{store: store}, m.materializer, registry)
+	c := NewIngestController(zap.NewNop().Sugar(), tally.NewTestScope("test", nil), staticCounterFactory{counter: m.counter}, m.factory, staticStorageFactory{store: store}, m.materializer, registry, []string{testQueue})
 	return c, m
 }
 
@@ -229,6 +229,13 @@ func TestIngestController_Ingest(t *testing.T) {
 		{
 			name:        "empty queue is invalid",
 			queue:       "",
+			setup:       func(m ingestMocks) {},
+			wantErr:     true,
+			wantInvalid: true,
+		},
+		{
+			name:        "unconfigured queue is invalid",
+			queue:       "monorepo/unconfigured",
 			setup:       func(m ingestMocks) {},
 			wantErr:     true,
 			wantInvalid: true,
