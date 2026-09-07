@@ -164,8 +164,12 @@ func (c *Controller) publish(ctx context.Context, result *runwaymq.MergeResult, 
 		return fmt.Errorf("failed to serialize merge result: %w", err)
 	}
 
-	if err := publish.Message(ctx, c.registry, c.signalTopicKey,
-		result.GetQueueName(), publish.IntentID(result.GetId(), "dlq"), payload, partitionKey); err != nil {
+	if err := publish.Message(ctx, c.registry, c.signalTopicKey, publish.MessageParams{
+		Tenant:       result.GetQueueName(),
+		ID:           publish.IntentID(result.GetId(), "dlq"),
+		Payload:      payload,
+		PartitionKey: partitionKey,
+	}); err != nil {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 

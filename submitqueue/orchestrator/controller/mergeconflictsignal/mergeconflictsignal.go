@@ -207,7 +207,12 @@ func (c *Controller) publishRequestID(ctx context.Context, key consumer.TopicKey
 		return fmt.Errorf("failed to serialize request ID: %w", err)
 	}
 
-	if err := publish.Message(ctx, c.registry, key, queue, publish.IntentID(requestID), payload, queue); err != nil {
+	if err := publish.Message(ctx, c.registry, key, publish.MessageParams{
+		Tenant:       queue,
+		ID:           publish.IntentID(requestID),
+		Payload:      payload,
+		PartitionKey: queue,
+	}); err != nil {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 

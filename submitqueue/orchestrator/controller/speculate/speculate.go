@@ -235,7 +235,13 @@ func (c *Controller) publishBatchIDWithMetadata(ctx context.Context, key consume
 	if err != nil {
 		return fmt.Errorf("failed to serialize batch ID: %w", err)
 	}
-	return publish.MessageWithMetadata(ctx, c.registry, key, queue, msgID, payload, partitionKey, metadata)
+	return publish.Message(ctx, c.registry, key, publish.MessageParams{
+		Tenant:       queue,
+		ID:           msgID,
+		Payload:      payload,
+		PartitionKey: partitionKey,
+		Metadata:     metadata,
+	})
 }
 
 // attributed records what a failure was about and counts it by subject type.

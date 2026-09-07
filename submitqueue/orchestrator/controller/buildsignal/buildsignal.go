@@ -440,7 +440,12 @@ func (c *Controller) publishBatchID(ctx context.Context, key consumer.TopicKey, 
 	if err != nil {
 		return fmt.Errorf("failed to serialize batch ID: %w", err)
 	}
-	return publish.Message(ctx, c.registry, key, queue, msgID, payload, queue)
+	return publish.Message(ctx, c.registry, key, publish.MessageParams{
+		Tenant:       queue,
+		ID:           msgID,
+		Payload:      payload,
+		PartitionKey: queue,
+	})
 }
 
 // Name returns the controller name for logging and metrics.

@@ -321,7 +321,12 @@ func (c *Controller) publishMergeCheck(ctx context.Context, req *runwaymq.MergeR
 		return fmt.Errorf("failed to serialize merge conflict check request: %w", err)
 	}
 
-	if err := publish.Message(ctx, c.registry, c.runwayTopicKey, req.GetQueueName(), publish.IntentID(req.GetId()), payload, req.GetQueueName()); err != nil {
+	if err := publish.Message(ctx, c.registry, c.runwayTopicKey, publish.MessageParams{
+		Tenant:       req.GetQueueName(),
+		ID:           publish.IntentID(req.GetId()),
+		Payload:      payload,
+		PartitionKey: req.GetQueueName(),
+	}); err != nil {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 

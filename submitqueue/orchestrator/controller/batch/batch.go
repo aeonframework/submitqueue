@@ -211,8 +211,12 @@ func (c *Controller) publishToDependencyAnalysis(ctx context.Context, batch enti
 		return fmt.Errorf("failed to serialize batch ID: %w", err)
 	}
 
-	if err := publish.Message(ctx, c.registry, topickey.TopicKeyDependencyAnalysis,
-		batch.Queue, publish.IntentID(batch.ID), payload, batch.Queue); err != nil {
+	if err := publish.Message(ctx, c.registry, topickey.TopicKeyDependencyAnalysis, publish.MessageParams{
+		Tenant:       batch.Queue,
+		ID:           publish.IntentID(batch.ID),
+		Payload:      payload,
+		PartitionKey: batch.Queue,
+	}); err != nil {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 

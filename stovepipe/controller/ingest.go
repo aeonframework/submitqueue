@@ -321,7 +321,12 @@ func (c *IngestController) publishProcess(ctx context.Context, id, queue string)
 		return fmt.Errorf("failed to serialize process request: %w", err)
 	}
 
-	if err := publish.Message(ctx, c.registry, stovepipemq.TopicKeyProcess, queue, publish.IntentID(id), payload, queue); err != nil {
+	if err := publish.Message(ctx, c.registry, stovepipemq.TopicKeyProcess, publish.MessageParams{
+		Tenant:       queue,
+		ID:           publish.IntentID(id),
+		Payload:      payload,
+		PartitionKey: queue,
+	}); err != nil {
 		return fmt.Errorf("failed to publish process request: %w", err)
 	}
 	return nil

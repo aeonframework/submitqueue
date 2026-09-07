@@ -381,7 +381,12 @@ func (c *Controller) publishBuildSignal(ctx context.Context, buildID, queue stri
 		return fmt.Errorf("failed to serialize build ID: %w", err)
 	}
 
-	if err := publish.Message(ctx, c.registry, topickey.TopicKeyBuildSignal, queue, publish.IntentID(buildID), payload, buildID); err != nil {
+	if err := publish.Message(ctx, c.registry, topickey.TopicKeyBuildSignal, publish.MessageParams{
+		Tenant:       queue,
+		ID:           publish.IntentID(buildID),
+		Payload:      payload,
+		PartitionKey: buildID,
+	}); err != nil {
 		metrics.NamedCounter(c.metricsScope, opName, "publish_errors", 1)
 		return fmt.Errorf("failed to publish to buildsignal: %w", err)
 	}

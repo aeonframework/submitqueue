@@ -483,7 +483,12 @@ func (c *Controller) publishBuild(ctx context.Context, id, queue string) error {
 		return fmt.Errorf("failed to serialize build request: %w", err)
 	}
 
-	if err := publish.Message(ctx, c.registry, stovepipemq.TopicKeyBuild, queue, publish.IntentID(id), payload, id); err != nil {
+	if err := publish.Message(ctx, c.registry, stovepipemq.TopicKeyBuild, publish.MessageParams{
+		Tenant:       queue,
+		ID:           publish.IntentID(id),
+		Payload:      payload,
+		PartitionKey: id,
+	}); err != nil {
 		return fmt.Errorf("failed to publish build request: %w", err)
 	}
 	return nil

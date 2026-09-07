@@ -55,7 +55,12 @@ func TestMessage(t *testing.T) {
 			return nil
 		})
 
-	err := Message(context.Background(), registry, testKey, "tenant-1", "msg-1", []byte("payload"), "partition-1")
+	err := Message(context.Background(), registry, testKey, MessageParams{
+		Tenant:       "tenant-1",
+		ID:           "msg-1",
+		Payload:      []byte("payload"),
+		PartitionKey: "partition-1",
+	})
 	require.NoError(t, err)
 	assert.Equal(t, "tenant-1", published.Tenant)
 	assert.Equal(t, "msg-1", published.ID)
@@ -76,12 +81,17 @@ func TestMessage_PropagatesTenantAsQueueName(t *testing.T) {
 			return nil
 		})
 
-	require.NoError(t, Message(context.Background(), registry, testKey, "monorepo/main", "msg-1", []byte("payload"), "partition-1"))
+	require.NoError(t, Message(context.Background(), registry, testKey, MessageParams{
+		Tenant:       "monorepo/main",
+		ID:           "msg-1",
+		Payload:      []byte("payload"),
+		PartitionKey: "partition-1",
+	}))
 	assert.Equal(t, "monorepo/main", published.Metadata[entityqueue.MetadataKeyQueueName])
 	assert.Equal(t, "monorepo/main", published.Tenant)
 }
 
-func TestMessageWithMetadata_MergesContextWithoutMutatingInput(t *testing.T) {
+func TestMessage_MergesMetadataWithoutMutatingInput(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	registry, publisher := newTestRegistry(t, ctrl)
 
@@ -94,7 +104,13 @@ func TestMessageWithMetadata_MergesContextWithoutMutatingInput(t *testing.T) {
 		})
 
 	metadata := map[string]string{"failure_reason": "build failed"}
-	require.NoError(t, MessageWithMetadata(context.Background(), registry, testKey, "monorepo/main", "msg-1", []byte("payload"), "partition-1", metadata))
+	require.NoError(t, Message(context.Background(), registry, testKey, MessageParams{
+		Tenant:       "monorepo/main",
+		ID:           "msg-1",
+		Payload:      []byte("payload"),
+		PartitionKey: "partition-1",
+		Metadata:     metadata,
+	}))
 	assert.Equal(t, map[string]string{
 		"failure_reason":                 "build failed",
 		entityqueue.MetadataKeyQueueName: "monorepo/main",
@@ -103,12 +119,18 @@ func TestMessageWithMetadata_MergesContextWithoutMutatingInput(t *testing.T) {
 	assert.Equal(t, map[string]string{"failure_reason": "build failed"}, metadata)
 }
 
-func TestMessageWithMetadata_RejectsQueueNameDifferentFromTenant(t *testing.T) {
+func TestMessage_RejectsQueueNameDifferentFromTenant(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	registry, _ := newTestRegistry(t, ctrl)
 
 	metadata := map[string]string{entityqueue.MetadataKeyQueueName: "outbound"}
-	err := MessageWithMetadata(context.Background(), registry, testKey, "inbound", "msg-1", []byte("payload"), "partition-1", metadata)
+	err := Message(context.Background(), registry, testKey, MessageParams{
+		Tenant:       "inbound",
+		ID:           "msg-1",
+		Payload:      []byte("payload"),
+		PartitionKey: "partition-1",
+		Metadata:     metadata,
+	})
 	require.Error(t, err)
 }
 
@@ -116,7 +138,12 @@ func TestMessage_UnregisteredKey(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	registry, _ := newTestRegistry(t, ctrl)
 
-	err := Message(context.Background(), registry, "unregistered-key", "tenant-1", "msg-1", []byte("payload"), "partition-1")
+	err := Message(context.Background(), registry, "unregistered-key", MessageParams{
+		Tenant:       "tenant-1",
+		ID:           "msg-1",
+		Payload:      []byte("payload"),
+		PartitionKey: "partition-1",
+	})
 	require.Error(t, err)
 }
 
@@ -124,7 +151,11 @@ func TestMessage_RequiresTenant(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	registry, _ := newTestRegistry(t, ctrl)
 
-	err := Message(context.Background(), registry, testKey, "", "msg-1", []byte("payload"), "partition-1")
+	err := Message(context.Background(), registry, testKey, MessageParams{
+		ID:           "msg-1",
+		Payload:      []byte("payload"),
+		PartitionKey: "partition-1",
+	})
 	require.Error(t, err)
 }
 

@@ -207,7 +207,13 @@ func (c *Controller) publish(ctx context.Context, key consumer.TopicKey, msgID, 
 		return fmt.Errorf("failed to serialize batch ID: %w", err)
 	}
 
-	if err := publish.MessageWithMetadata(ctx, c.registry, key, queue, msgID, payload, queue, metadata); err != nil {
+	if err := publish.Message(ctx, c.registry, key, publish.MessageParams{
+		Tenant:       queue,
+		ID:           msgID,
+		Payload:      payload,
+		PartitionKey: queue,
+		Metadata:     metadata,
+	}); err != nil {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 

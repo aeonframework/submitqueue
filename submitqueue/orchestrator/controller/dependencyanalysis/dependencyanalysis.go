@@ -440,7 +440,12 @@ func (c *Controller) publishToSpeculate(ctx context.Context, batch entity.Batch)
 		return fmt.Errorf("failed to serialize batch ID: %w", err)
 	}
 
-	if err := publish.Message(ctx, c.registry, topickey.TopicKeySpeculate, batch.Queue, publish.IntentID(batch.ID), payload, batch.Queue); err != nil {
+	if err := publish.Message(ctx, c.registry, topickey.TopicKeySpeculate, publish.MessageParams{
+		Tenant:       batch.Queue,
+		ID:           publish.IntentID(batch.ID),
+		Payload:      payload,
+		PartitionKey: batch.Queue,
+	}); err != nil {
 		metrics.NamedCounter(c.metricsScope, opName, "publish_errors", 1)
 		return fmt.Errorf("failed to publish batch ID to speculate topic: %w", err)
 	}

@@ -300,8 +300,12 @@ func (s *E2EIntegrationSuite) redeliverBatchMessage(req request) {
 	payload, err := entity.RequestID{ID: req.sqid, Queue: req.queue}.ToBytes()
 	require.NoError(t, err)
 
-	require.NoError(t, publish.Message(entityqueue.WithQueueName(s.ctx, req.queue), registry, topickey.TopicKeyBatch,
-		req.queue, publish.UniqueID(req.sqid), payload, req.queue), "failed to redeliver the batch message")
+	require.NoError(t, publish.Message(entityqueue.WithQueueName(s.ctx, req.queue), registry, topickey.TopicKeyBatch, publish.MessageParams{
+		Tenant:       req.queue,
+		ID:           publish.UniqueID(req.sqid),
+		Payload:      payload,
+		PartitionKey: req.queue,
+	}), "failed to redeliver the batch message")
 	s.log.Logf("Redelivered the batch message for %s", req.sqid)
 }
 

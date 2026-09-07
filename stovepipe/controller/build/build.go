@@ -174,7 +174,12 @@ func (c *Controller) publishBuildSignal(ctx context.Context, buildID, queue stri
 		return fmt.Errorf("failed to serialize build signal: %w", err)
 	}
 
-	return publish.Message(ctx, c.registry, stovepipemq.TopicKeyBuildSignal, queue, publish.IntentID(buildID), payload, buildID)
+	return publish.Message(ctx, c.registry, stovepipemq.TopicKeyBuildSignal, publish.MessageParams{
+		Tenant:       queue,
+		ID:           publish.IntentID(buildID),
+		Payload:      payload,
+		PartitionKey: buildID,
+	})
 }
 
 // Name returns the controller name for logging and metrics.

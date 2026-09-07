@@ -50,9 +50,12 @@ func Publish(
 		return fmt.Errorf("failed to serialize hook event %s: %w", event.GetId(), err)
 	}
 
-	if err := publish.Message(
-		ctx, registry, basehook.TopicKeyHook, tenant, publish.IntentID(event.GetId()), body, partitionKey,
-	); err != nil {
+	if err := publish.Message(ctx, registry, basehook.TopicKeyHook, publish.MessageParams{
+		Tenant:       tenant,
+		ID:           publish.IntentID(event.GetId()),
+		Payload:      body,
+		PartitionKey: partitionKey,
+	}); err != nil {
 		return fmt.Errorf("failed to publish hook event %s: %w", event.GetId(), err)
 	}
 	return nil
