@@ -20,7 +20,6 @@ package build
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/uber-go/tally"
@@ -30,6 +29,7 @@ import (
 	"github.com/uber/submitqueue/platform/publish"
 	"github.com/uber/submitqueue/stovepipe/core/loader"
 	stovepipemq "github.com/uber/submitqueue/stovepipe/core/messagequeue"
+	"github.com/uber/submitqueue/stovepipe/core/requestlog"
 	"github.com/uber/submitqueue/stovepipe/entity"
 	"github.com/uber/submitqueue/stovepipe/extension/buildrunner"
 	"github.com/uber/submitqueue/stovepipe/extension/storage"
@@ -43,6 +43,7 @@ type Controller struct {
 	logger        *zap.SugaredLogger
 	metricsScope  tally.Scope
 	stores        storage.Factory
+	materializer  requestlog.Materializer
 	buildRunners  buildrunner.Factory
 	registry      consumer.TopicRegistry
 	topicKey      consumer.TopicKey
@@ -60,6 +61,7 @@ func NewController(
 	logger *zap.SugaredLogger,
 	scope tally.Scope,
 	stores storage.Factory,
+	materializer requestlog.Materializer,
 	buildRunners buildrunner.Factory,
 	registry consumer.TopicRegistry,
 	topicKey consumer.TopicKey,
@@ -69,6 +71,7 @@ func NewController(
 		logger:        logger.Named("build_controller"),
 		metricsScope:  scope.SubScope("build_controller"),
 		stores:        stores,
+		materializer:  materializer,
 		buildRunners:  buildRunners,
 		registry:      registry,
 		topicKey:      topicKey,
@@ -141,8 +144,11 @@ func (c *Controller) Process(ctx context.Context, delivery consumer.Delivery) er
 		Status:    entity.BuildStatusAccepted,
 		Version:   1,
 	}
-	if err := store.GetBuildStore().Create(ctx, build); err != nil && !errors.Is(err, storage.ErrAlreadyExists) {
+	if err := store.GetBuildStore().Create(ctx, build); err != nil {
 		return fmt.Errorf("failed to persist build %s: %w", build.ID, err)
+	}
+	if err := c.persistBuildTriggeredLog(ctx, store, request, build.ID); err != nil {
+		return err
 	}
 
 	if err := c.publishBuildSignal(ctx, build.ID, request.Queue); err != nil {
@@ -155,6 +161,19 @@ func (c *Controller) Process(ctx context.Context, delivery consumer.Delivery) er
 		"queue", request.Queue,
 		"base_uri", baseURI,
 	)
+	return nil
+}
+
+func (c *Controller) persistBuildTriggeredLog(ctx context.Context, store storage.Storage, request entity.Request, buildID string) error {
+	log := requestlog.NewRequestEventLog(
+		request,
+		entity.RequestEventBuildTriggered,
+		buildID,
+		map[string]string{requestlog.MetadataKeyBuildID: buildID},
+	)
+	if err := c.materializer.PersistLog(ctx, store, log); err != nil {
+		return fmt.Errorf("failed to record build %s trigger for request %s: %w", buildID, request.ID, err)
+	}
 	return nil
 }
 
