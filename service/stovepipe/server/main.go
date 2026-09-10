@@ -67,8 +67,9 @@ import (
 // StovepipeServer wraps the controllers and implements the gRPC service interface.
 type StovepipeServer struct {
 	pb.UnimplementedStovepipeServer
-	pingController   *controller.PingController
-	ingestController *controller.IngestController
+	pingController           *controller.PingController
+	ingestController         *controller.IngestController
+	requestHistoryController controller.RequestHistoryController
 }
 
 // Ping delegates to the controller.
@@ -84,6 +85,24 @@ func (s *StovepipeServer) Ingest(ctx context.Context, req *pb.IngestRequest) (*p
 		return nil, err
 	}
 	return mapper.IngestResultToProto(result), nil
+}
+
+// GetRequestHistoryByID returns retained history for one request ID.
+func (s *StovepipeServer) GetRequestHistoryByID(ctx context.Context, req *pb.GetRequestHistoryByIDRequest) (*pb.GetRequestHistoryByIDResponse, error) {
+	events, err := s.requestHistoryController.GetRequestHistoryByID(ctx, mapper.ProtoToGetRequestHistoryByIDRequest(req))
+	if err != nil {
+		return nil, err
+	}
+	return &pb.GetRequestHistoryByIDResponse{Events: mapper.HistoryEventsToProto(events)}, nil
+}
+
+// GetRequestHistoryByURI returns retained histories for one commit URI.
+func (s *StovepipeServer) GetRequestHistoryByURI(ctx context.Context, req *pb.GetRequestHistoryByURIRequest) (*pb.GetRequestHistoryByURIResponse, error) {
+	histories, err := s.requestHistoryController.GetRequestHistoryByURI(ctx, mapper.ProtoToGetRequestHistoryByURIRequest(req))
+	if err != nil {
+		return nil, err
+	}
+	return &pb.GetRequestHistoryByURIResponse{Histories: mapper.RequestHistoriesToProto(histories)}, nil
 }
 
 // inMemoryCounter is a minimal, process-local counter.Counter used to wire the example
@@ -304,11 +323,11 @@ func run() error {
 
 	storageFty := storageFactory{backend: store}
 	materializer := requestlog.NewMaterializer(scope)
-	primaryCount, err := registerPrimaryControllers(primaryConsumer, logger.Sugar(), scope, storageFty, registry, sourceControl, brf, hookResolver{})
+	primaryCount, err := registerPrimaryControllers(primaryConsumer, logger.Sugar(), scope, storageFty, materializer, registry, sourceControl, brf, hookResolver{})
 	if err != nil {
 		return err
 	}
-	dlqCount, err := registerDLQControllers(dlqConsumer, logger.Sugar(), scope, storageFty, registry, sourceControl)
+	dlqCount, err := registerDLQControllers(dlqConsumer, logger.Sugar(), scope, storageFty, materializer, registry, sourceControl)
 	if err != nil {
 		return err
 	}
@@ -341,9 +360,11 @@ func run() error {
 		materializer,
 		registry,
 	)
+	requestHistoryController := controller.NewRequestHistoryController(logger.Sugar(), scope, storageFty)
 	srv := &StovepipeServer{
-		pingController:   pingController,
-		ingestController: ingestController,
+		pingController:           pingController,
+		ingestController:         ingestController,
+		requestHistoryController: requestHistoryController,
 	}
 	pb.RegisterStovepipeServer(grpcServer, srv)
 
@@ -416,6 +437,7 @@ func registerPrimaryControllers(
 	logger *zap.SugaredLogger,
 	scope tally.Scope,
 	store storage.Factory,
+	materializer requestlog.Materializer,
 	registry consumer.TopicRegistry,
 	sourceControl sourcecontrol.Factory,
 	brf buildrunner.Factory,
@@ -427,6 +449,7 @@ func registerPrimaryControllers(
 		logger,
 		scope,
 		store,
+		materializer,
 		queueconfigdefault.NewStore(),
 		sourceControl,
 		registry,
@@ -438,19 +461,19 @@ func registerPrimaryControllers(
 	}
 	count++
 
-	buildController := build.NewController(logger, scope, store, brf, registry, stovepipemq.TopicKeyBuild, "stovepipe-build")
+	buildController := build.NewController(logger, scope, store, materializer, brf, registry, stovepipemq.TopicKeyBuild, "stovepipe-build")
 	if err := c.Register(buildController); err != nil {
 		return count, fmt.Errorf("failed to register build controller: %w", err)
 	}
 	count++
 
-	buildSignalController := buildsignal.NewController(logger, scope, store, brf, registry, stovepipemq.TopicKeyBuildSignal, "stovepipe-buildsignal")
+	buildSignalController := buildsignal.NewController(logger, scope, store, materializer, brf, registry, stovepipemq.TopicKeyBuildSignal, "stovepipe-buildsignal")
 	if err := c.Register(buildSignalController); err != nil {
 		return count, fmt.Errorf("failed to register buildsignal controller: %w", err)
 	}
 	count++
 
-	recordController := record.NewController(logger, scope, store, sourceControl, registry, stovepipemq.TopicKeyRecord, "stovepipe-record")
+	recordController := record.NewController(logger, scope, store, materializer, sourceControl, registry, stovepipemq.TopicKeyRecord, "stovepipe-record")
 	if err := c.Register(recordController); err != nil {
 		return count, fmt.Errorf("failed to register record controller: %w", err)
 	}
@@ -472,30 +495,31 @@ func registerDLQControllers(
 	logger *zap.SugaredLogger,
 	scope tally.Scope,
 	store storage.Factory,
+	materializer requestlog.Materializer,
 	registry consumer.TopicRegistry,
 	sourceControl sourcecontrol.Factory,
 ) (int, error) {
 	var count int
 
-	processDLQController := dlq.NewDLQRequestController(logger, scope, store, dlq.TopicKey(stovepipemq.TopicKeyProcess), "stovepipe-process-dlq")
+	processDLQController := dlq.NewDLQRequestController(logger, scope, store, materializer, dlq.TopicKey(stovepipemq.TopicKeyProcess), "stovepipe-process-dlq")
 	if err := c.Register(processDLQController); err != nil {
 		return count, fmt.Errorf("failed to register process dlq controller: %w", err)
 	}
 	count++
 
-	buildDLQController := dlq.NewDLQBuildController(logger, scope, store, dlq.TopicKey(stovepipemq.TopicKeyBuild), "stovepipe-build-dlq")
+	buildDLQController := dlq.NewDLQBuildController(logger, scope, store, materializer, dlq.TopicKey(stovepipemq.TopicKeyBuild), "stovepipe-build-dlq")
 	if err := c.Register(buildDLQController); err != nil {
 		return count, fmt.Errorf("failed to register build dlq controller: %w", err)
 	}
 	count++
 
-	buildSignalDLQController := dlq.NewDLQBuildSignalController(logger, scope, store, dlq.TopicKey(stovepipemq.TopicKeyBuildSignal), "stovepipe-buildsignal-dlq")
+	buildSignalDLQController := dlq.NewDLQBuildSignalController(logger, scope, store, materializer, dlq.TopicKey(stovepipemq.TopicKeyBuildSignal), "stovepipe-buildsignal-dlq")
 	if err := c.Register(buildSignalDLQController); err != nil {
 		return count, fmt.Errorf("failed to register buildsignal dlq controller: %w", err)
 	}
 	count++
 
-	recordDLQController := record.NewController(logger, scope, store, sourceControl, registry, dlq.TopicKey(stovepipemq.TopicKeyRecord), "stovepipe-record-dlq")
+	recordDLQController := record.NewController(logger, scope, store, materializer, sourceControl, registry, dlq.TopicKey(stovepipemq.TopicKeyRecord), "stovepipe-record-dlq")
 	if err := c.Register(recordDLQController); err != nil {
 		return count, fmt.Errorf("failed to register record dlq controller: %w", err)
 	}
